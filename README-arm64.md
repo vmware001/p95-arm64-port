@@ -141,6 +141,11 @@ processes):
 * LL acceptance re-run on real hardware: **14/14** — `M11`/`M67` "is not prime"
   (Res64 `0x6C8` / `677D24EE8AE3B2C2`) and `M127 … M11213` all "is prime!".
   Log: `dist-arm64/tests/realhw-rk3528-ll-results.txt`.
+* `mprime -b` benchmark on that device (CPU reported as 2016 MHz, hwloc detected the 4 cores):
+  3072K FFT 4 cores/1 worker = **196.4 ms/iter** (5.09 iter/s), 3584K = 249.9 ms/iter,
+  4096K = 287.1 ms/iter.  That is roughly two orders of magnitude slower than a modern x86-64
+  core for LL/PRP — expected for a 128-bit-SIMD-only port on an in-order Cortex-A53.
+  Log: `dist-arm64/tests/realhw-rk3528-bench-and-tf.log`.
 
 ### Trial factoring speed on that device (single core; C port of factor64.asm)
 
