@@ -129,9 +129,40 @@ from the upstream makefile only because in the shared sources it means "64-bit b
 
 ## Validation (what was actually executed)
 
+### Real ARM64 hardware
+
+Tested on the user's device: **Rockchip RK3528** TV box (model CD1000), Android 9, kernel
+**4.19.232 aarch64** (64-bit kernel with a 32-bit Android/Debian userland), **4× Cortex-A53**
+(ARMv8, CPU part `0xd03`) up to 2.016 GHz, 2 GB RAM.  The shipped static aarch64 binary runs
+unmodified (the 64-bit kernel executes ELF64 even though `uname -m` reports `armv8l` for 32-bit
+processes):
+
+* `./mprime -v` → `Mersenne Prime Test Program: Linux64,Untrusted Prime95,v31.7,build 2`
+* LL acceptance re-run on real hardware: **14/14** — `M11`/`M67` "is not prime"
+  (Res64 `0x6C8` / `677D24EE8AE3B2C2`) and `M127 … M11213` all "is prime!".
+  Log: `dist-arm64/tests/realhw-rk3528-ll-results.txt`.
+
+### Trial factoring speed on that device (single core; C port of factor64.asm)
+
+| worktodo entry | work | measured time |
+|---|---|---|
+| `Factor=47000011,50,51` | 1 bit level at 2^50 | **1 s** |
+| `Factor=47000011,50,55` | 5 bit levels (2^50→2^55) | **11 s** |
+| `Factor=47000011,57,58` | 1 bit level at 2^57 | **44 s** |
+| `Factor=47000011,64,65` | 1 bit level at 2^64 (first 2-limb Montgomery level) | **> 244 s**, not finished — extrapolates to ~16–47 h |
+
+TF cost per bit level grows like 2^bits / exponent, and above 2^64 our portable C uses the
+documented 2-limb Montgomery path (10–30× slower than the 1-limb path).  Practical GIMPS TF
+assignments are 2^70…2^77 at exponents 1.0–1.4e8, i.e. 10^5–10^6 times more work than the
+`2^57` case above — **TF on an ARM CPU is not viable**; GIMPS runs TF on GPUs
+(mfaktc/mfakto).  Use LL/PRP/P-1 on ARM64, or skip TF work units.  Full log:
+`dist-arm64/tests/realhw-rk3528-tf-timing.log`.
+
+### Emulated validation (function-correctness, no real hardware needed)
+
 Harness / environment: QEMU 11.1 `qemu-system-aarch64`, `-M virt -cpu cortex-a72 -smp 4`,
 Alpine Linux 6.24 aarch64 kernel 6.18.60 as initramfs with the **shipped static mprime binary**
-(no aarch64 hardware was available; TCG emulation is function-correct, not speed-representative).
+(TCG emulation is function-correct, not speed-representative).
 
 ### gwnum FFT math (`_work/gwnum/gwlltest.c`, same converted C sources both targets)
 
