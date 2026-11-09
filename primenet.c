@@ -808,6 +808,13 @@ int format_args (char* args, short operation, void* pkt)
 		make_v5_client_key (p_v5key, COMPUTER_GUID);
 		secure_v5_url (args, p_v5key);
 	}
+#else
+	/* PrimeNet v5 API requires the ss (security salt) and sh (security hash)
+	   parameters on every transaction (see v5webAPI 5.1.2.1 / 5.3 / 5.6 etc).
+	   Trusted builds append signed values via secure5.c above; open-source
+	   ("untrusted") builds must send them as empty values instead.  They are
+	   specified to be the last parameters of the URL. */
+	strcat (args, "&ss=&sh=");
 #endif
 	return (0);
 }

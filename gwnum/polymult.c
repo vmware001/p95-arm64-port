@@ -16,7 +16,11 @@
 #include "gwnum.h"
 #include "gwutil.h"
 #include "polymult.h"
-#if defined (SSE2) || defined (AVX) || defined (FMA) || defined (AVX512)
+#if defined(__aarch64__) && defined (SSE2)
+/* ARM64: the SSE2 variant of polymult is built from this same source using a
+   small 128-bit double intrinsics shim (NEON-backed), see arm64_sse2.h. */
+#include "arm64_sse2.h"
+#elif defined (SSE2) || defined (AVX) || defined (FMA) || defined (AVX512)
 #include <immintrin.h>
 #endif
 
@@ -49,7 +53,7 @@
 | P-1/ECM should be treated as untested until an SSE2/NEON polymult     |
 | variant is added (see T2 hand-off notes).                             |
 +----------------------------------------------------------------------*/
-#if (defined(__x86_64__) || defined(_M_X64)) && !defined(POLYMULT_FORCE_SCALAR)
+#if ((defined(__x86_64__) || defined(_M_X64)) || defined(__aarch64__)) && !defined(POLYMULT_FORCE_SCALAR)
 #define POLYMULT_X86_64		1
 #endif
 #ifdef POLYMULT_X86_64
@@ -361,6 +365,18 @@ typedef struct {
 #define _mm64_mul_pd(a,b)	((a)*(b))
 #define _mm64_div_pd(a,b)	((a)/(b))
 #define _mm64_stream_pd(a,b)	(*(double *)(a)=(b))
+#endif
+
+#if defined(__aarch64__) && defined(POLYMULT_X86_64)
+/* ARM64: this non-ISA translation unit only provides polymult's generic
+   infrastructure.  The per-line implementations live in the 128-bit "SSE2"
+   variant object (polymult_sse2.o), which is the only layout that matches
+   gwnum's ARM64 FFT data (two doubles per vector).  Point the generic code's
+   macro names at those implementations. */
+#undef polymult_line
+#undef polymult_line_preprocess
+#define	polymult_line			polymult_line_sse2
+#define	polymult_line_preprocess	polymult_line_preprocess_sse2
 #endif
 
 // Emulate FMA on CPUs that do not have an FMA instruction
@@ -4510,6 +4526,11 @@ void polymult_dispatch (
 
 	// Polymult_line optimized for several instruction sets
 	case HELPER_POLYMULT_LINE:
+#if defined(__aarch64__) && defined(POLYMULT_X86_64)
+		/* ARM64: only the 128-bit SSE2 variant is built, and it is the only
+		   implementation whose layout matches gwnum's ARM64 FFT data. */
+		polymult_line_sse2 (pmdata);
+#else
 #ifdef POLYMULT_X86_64
 		// Polymult_line optimized routines for AVX512 instructions
 		if (pmdata->cpu_flags & CPU_AVX512F) polymult_line_avx512 (pmdata); else
@@ -4520,9 +4541,11 @@ void polymult_dispatch (
 		// Polymult optimized routines for SSE2 instructions
 		else if (pmdata->cpu_flags & CPU_SSE2) polymult_line_sse2 (pmdata); else
 #endif
+#ifndef POLYMULT_X86_64
 		// Polymult default routines using no vector instructions
-		// (this is the only implementation built on ARM64 / scalar build)
 		polymult_line_dbl (pmdata);
+#endif
+#endif
 		break;
 
 	// Post-unFFT polymult outputs
@@ -4532,14 +4555,19 @@ void polymult_dispatch (
 
 	// Polymult_preprocess_line optimized for several instruction sets
 	case HELPER_PREPROCESS_LINE:
+#if defined(__aarch64__) && defined(POLYMULT_X86_64)
+		polymult_line_preprocess_sse2 (pmdata);
+#else
 #ifdef POLYMULT_X86_64
 		if (pmdata->cpu_flags & CPU_AVX512F) polymult_line_preprocess_avx512 (pmdata); else
 		if (pmdata->cpu_flags & CPU_FMA3) polymult_line_preprocess_fma (pmdata);
 		else if (pmdata->cpu_flags & CPU_AVX) polymult_line_preprocess_avx (pmdata);
 		else if (pmdata->cpu_flags & CPU_SSE2) polymult_line_preprocess_sse2 (pmdata); else
 #endif
-		// (this is the only implementation built on ARM64 / scalar build)
+#ifndef POLYMULT_X86_64
 		polymult_line_preprocess_dbl (pmdata);
+#endif
+#endif
 		break;
 	}
 

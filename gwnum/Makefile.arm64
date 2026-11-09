@@ -90,11 +90,17 @@ endif
 # Do NOT add -I. here: cpuid.c includes the *system* <cpuid.h> on x86, and -I.
 # would shadow it with gwnum's own cpuid.h (quoted includes already resolve
 # relative to each source file, and subdir kernels use ../gwnum.h).
-# This Makefile builds only the portable scalar ("dbl") polymult implementation.
-# -DPOLYMULT_FORCE_SCALAR tells polymult.c to mask the vector-ISA CPU flags in its
-# private handle and dispatch to the scalar code (the SSE2/AVX/FMA/AVX-512
-# variants are x86 intrinsics and are not ported to ARM64 yet).
-POLYMULT_DEFS = -DPOLYMULT_FORCE_SCALAR
+# This Makefile builds the portable scalar ("dbl") polymult implementation and,
+# on ARM64, additionally the 128-bit ("SSE2") variant using the NEON-backed
+# intrinsics shim in arm64_sse2.h.  gwnum's ARM64 FFT data layout is the
+# 128-bit/two-double layout, so mprime's P-1/ECM stage 2 must use the SSE2
+# variant; the scalar variant is kept as the fallback (and is the only variant
+# in the x86 math-validation build, where POLYMULT_FORCE_SCALAR is passed).
+ifeq ($(ARCH),x86)
+  POLYMULT_DEFS = -DPOLYMULT_FORCE_SCALAR
+else
+  POLYMULT_DEFS =
+endif
 
 CFLAGS_COMMON   = -O2 -ffp-contract=on -Iqd $(SQLITE_DEFS) $(POLYMULT_DEFS)
 CXXFLAGS_COMMON = -O2 -ffp-contract=on -Iqd $(SQLITE_DEFS)
@@ -162,7 +168,6 @@ X86_EXTRA_SRCS = \
 	cpuid_xsave.c
 
 POLY_SRCS = polymult.c
-
 SRCS = $(CORE_SRCS) $(R4_SRCS) $(HG_SRCS) $(X_SRCS) $(POLY_SRCS)
 ifeq ($(ARCH),x86)
   SRCS += $(X86_EXTRA_SRCS)
@@ -173,6 +178,11 @@ OBJS      = $(addprefix $(OBJDIR)/,$(notdir $(SRCS:.cpp=.o)))
 OBJS     := $(OBJS:.c=.o)
 GNUM_OBJS = $(filter-out $(OBJDIR)/polymult.o,$(OBJS))
 POLY_OBJS = $(OBJDIR)/polymult.o
+ifeq ($(ARCH),arm64)
+# 128-bit-layout polymult ("SSE2" intrinsics mapped to NEON through arm64_sse2.h;
+# required so P-1/ECM stage 2 matches gwnum's ARM64 128-bit FFT layout).
+POLY_OBJS += $(OBJDIR)/polymult_sse2.o
+endif
 
 vpath %.c r4 hg x
 vpath %.cpp .
@@ -216,6 +226,11 @@ $(OBJDIR)/xmult3a_k8_sse41.o:   CFLAGS += -msse4.1
 $(OBJDIR)/cpuid_xsave.o:        CFLAGS += -mxsave
 endif
 
+# 128-bit-layout polymult for ARM64 (NEON-backed SSE2 intrinsics shim).
+# No POLYMULT_FORCE_SCALAR: polymult.c selects its SSE2 code paths and the
+# 128-bit vector layout that matches gwnum on ARM64.
+$(OBJDIR)/polymult_sse2.o: polymult.c polymult.h arm64_sse2.h | $(OBJDIR)
+	$(CC) -O2 -ffp-contract=on -Iqd -DSSE2 -c polymult.c -o $@
 print-config:
 	@echo "ARCH     = $(ARCH)"
 	@echo "CC       = $(CC)"
@@ -236,7 +251,8 @@ clean:
 	-del /q $(subst /,\,$(POLYLIB)) 2>NUL
 else
 clean:
-	-rm -f $(OBJS) $(DEPS) $(LIB) $(POLYLIB)
+	-rm -f $(OBJS) $(DEPS) $(POLY_OBJS) $(LIB) $(POLYLIB)
 endif
 
 -include $(DEPS)
+
