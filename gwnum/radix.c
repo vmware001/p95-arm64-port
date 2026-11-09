@@ -25,7 +25,7 @@
 
 int radix_gwcopy (gwhandle *src_gwdata, gwhandle *dst_gwdata, gwnum src, gwnum dst, uint64_t big_word_flags, int num_big_word_flags);
 void brute_convert (gwhandle *gwdata, giant g, gwnum x, int offset, uint64_t big_word_flags);
-__inline uint64_t intgcd (uint64_t a, uint64_t b) { while (b != 0) { uint64_t temp = a % b; a = b; b = temp; } return a; }
+static __inline uint64_t intgcd (uint64_t a, uint64_t b) { while (b != 0) { uint64_t temp = a % b; a = b; b = temp; } return a; }
 
 /* Internal routine to convert a giant to base != 2 gwnum FFT format. */
 
@@ -41,7 +41,7 @@ int nonbase2_gianttogw (	/* Returns an error code or zero for success */
 
 #define BRUTE_FORCE_WORDS		2
 #define giant_extract(s,off,len,d)	{if ((s)->sign <= (off)) (d)->sign = 0; \
-					 else { (d)->sign = intmin ((s)->sign - (off), (len)); \
+					else { (d)->sign = intmin ((s)->sign - (off), (len)); \
 						memcpy ((d)->n, (s)->n+(off), (d)->sign * sizeof (uint32_t)); \
 						while((d)->sign && (d)->n[(d)->sign-1] == 0) (d)->sign--;}}
 
@@ -206,10 +206,10 @@ int nonbase2_gianttogw (	/* Returns an error code or zero for success */
 		stackgiant(tmpg,BRUTE_FORCE_WORDS);
 
 		giant_extract (g, giant_offset, BRUTE_FORCE_WORDS, tmpg);
-	        brute_convert (work_gwdata, tmpg, t3, gwnum_offset, big_word_flags);
+			brute_convert (work_gwdata, tmpg, t3, gwnum_offset, big_word_flags);
 
 		giant_extract (g, giant_offset + BRUTE_FORCE_WORDS, BRUTE_FORCE_WORDS, tmpg);
-	        brute_convert (work_gwdata, tmpg, t1, gwnum_offset, big_word_flags);
+			brute_convert (work_gwdata, tmpg, t1, gwnum_offset, big_word_flags);
 
 		gwnum_offset += fft_words_per_mult;
 		giant_offset += BRUTE_FORCE_WORDS * 2;
@@ -258,6 +258,7 @@ int nonbase2_gianttogw (	/* Returns an error code or zero for success */
 		gwaddquick (work_gwdata, t3, t1);			// Add the multiplied upper and the lower
 		fft_words_per_mult = fft_words_per_mult * 2;
 #ifdef GDEBUG
+		// BUG: Assert being triggered with 123456789124*3^2000001+1
 		for(int h=0;h<(int)work_gwdata->FFTLEN;h+=fft_words_per_mult)ASSERTG(*addr(work_gwdata, t1, fft_words_per_mult-1) >= 0.0);
 #endif
 	}
@@ -573,7 +574,7 @@ int source_extract (
 
 /* Output up to 64-bits to part of a gwnum specified by gwnum_offset and num_fft_words */
 
-__inline void brute_output64 (
+static __inline void brute_output64 (
 	gwhandle *gwdata,
 	gwnum	x,
 	int	gwnum_offset,

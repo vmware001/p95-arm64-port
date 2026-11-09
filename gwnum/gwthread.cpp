@@ -25,6 +25,10 @@
 #include <atomic>
 #include <memory.h>
 
+#if defined(__aarch64__) || defined(__arm__) || defined(_M_ARM64)
+#include <arm_acle.h>  // for __yield()
+#endif
+
 /******************************************************************************
 *                            Atomic Int Routines                              *
 ******************************************************************************/
@@ -32,43 +36,47 @@
 // Hack to workaround MSVC's appalling lack of support for atomics in C, gcc 4.8's missing stdatomic.h, and gcc 8's inability to mix _Atomic in C++ code.
 // Instead we use C++11 std::atomic in gwthread.cpp and export the few routines we need in a simple C interface.
 
+// ARM64 need memory order acquire and release to avoid multithread memory errors.
+
 #define cast_as_atomic_int(a)	((std::atomic<int64_t> *)(a))
 
 extern "C"
 void	gwatomic_set (gwatomic *x, int64_t val) {
 //	ASSERTG (sizeof (std::atomic_int) <= sizeof (gwatomic);
-	cast_as_atomic_int(x)->store (val, std::memory_order_relaxed);
+	cast_as_atomic_int(x)->store (val, std::memory_order_release);
 }
 
 extern "C"
 int64_t	gwatomic_get (gwatomic *x) {
 //	ASSERTG (sizeof (std::atomic_int) <= sizeof (gwatomic);
-	return (cast_as_atomic_int(x)->load (std::memory_order_relaxed));
+	return (cast_as_atomic_int(x)->load (std::memory_order_acquire));
 }
 
 extern "C"
 int64_t	gwatomic_fetch_increment (gwatomic *x) {
 //	ASSERTG (sizeof (std::atomic_int) <= sizeof (gwatomic);
-	return (cast_as_atomic_int(x)->fetch_add (1, std::memory_order_relaxed));
+	return (cast_as_atomic_int(x)->fetch_add (1, std::memory_order_acq_rel));
 }
 
 extern "C"
 int64_t	gwatomic_fetch_decrement (gwatomic *x) {
 //	ASSERTG (sizeof (std::atomic_int) <= sizeof (gwatomic);
-	return (cast_as_atomic_int(x)->fetch_sub (1, std::memory_order_relaxed));
+	return (cast_as_atomic_int(x)->fetch_sub (1, std::memory_order_acq_rel));
 }
 
 extern "C"
 int64_t	gwatomic_fetch_add (gwatomic *x, int64_t val) {
 //	ASSERTG (sizeof (std::atomic_int) <= sizeof (gwatomic);
-	return (cast_as_atomic_int(x)->fetch_add (val, std::memory_order_relaxed));
+	return (cast_as_atomic_int(x)->fetch_add (val, std::memory_order_acq_rel));
 }
 
 extern "C"
 void	gwatomic_spinwait (gwatomic *x, int64_t val) {
 //	ASSERTG (sizeof (std::atomic_int) <= sizeof (gwatomic);
-	while (cast_as_atomic_int(x)->load (std::memory_order_relaxed) != val) {
-#ifdef _MSC_VER
+	while (cast_as_atomic_int(x)->load (std::memory_order_acquire) != val) {
+#if defined(__aarch64__) || defined(__arm__) || defined(_M_ARM64)
+		__yield();
+#elif defined(_MSC_VER)
 		_mm_pause();
 #else
 		__builtin_ia32_pause();
@@ -155,7 +163,7 @@ void gwevent_init (
 	gwevent	*event)			/* Event to init */
 {
 #ifdef _WIN32
- 	* (HANDLE *) event = CreateEvent (
+	* (HANDLE *) event = CreateEvent (
 				NULL,		// No security stuff
 				TRUE,		// Manual reset event
 				FALSE,		// Initially not signaled
@@ -225,8 +233,8 @@ int gwevent_wait (
 			signalled_count = e->signalled_count;
 			if (seconds) {
 				rc = pthread_cond_timedwait (&e->event_cond,
-							     &e->event_mutex,
-							     &timeout);
+								&e->event_mutex,
+								&timeout);
 				if (rc == ETIMEDOUT) break;
 			} else
 				rc = pthread_cond_wait (&e->event_cond,

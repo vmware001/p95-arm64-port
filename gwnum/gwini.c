@@ -365,7 +365,7 @@ const char *IniSectionGetNthStringRaw (	/* Return keyword's Nth raw string value
 	if (section != NULL) {
 		for ( ; i < p->num_lines; i++) {
 			if (p->lines[i]->line_type == INI_LINE_HEADER &&
-			    _stricmp (section, p->lines[i]->keyword) == 0) {
+				_stricmp (section, p->lines[i]->keyword) == 0) {
 				i++;
 				break;
 			}
@@ -376,13 +376,13 @@ const char *IniSectionGetNthStringRaw (	/* Return keyword's Nth raw string value
 
 	for ( ; ; i++) {
 		if (i == p->num_lines ||
-		    p->lines[i]->line_type == INI_LINE_HEADER) {
+			p->lines[i]->line_type == INI_LINE_HEADER) {
 			retval = NULL;
 			break;
 		}
 		if (p->lines[i]->line_type == INI_LINE_NORMAL &&
-		    _stricmp (keyword, p->lines[i]->keyword) == 0 &&
-		    --nth == 0) {
+			_stricmp (keyword, p->lines[i]->keyword) == 0 &&
+			--nth == 0) {
 			retval = p->lines[i]->value;
 			break;
 		}
@@ -476,7 +476,7 @@ void IniSectionWriteNthString (		/* Write keyword's Nth string value to a specif
 	lines_were_deleted = FALSE;
 	for ( ; ; i++) {
 		if (i == p->num_lines || p->lines[i]->line_type == INI_LINE_HEADER ||
-		    (p->lines[i]->line_type != INI_LINE_COMMENT && _stricmp (p->lines[i]->keyword, "Time") == 0)) {
+			(p->lines[i]->line_type != INI_LINE_COMMENT && _stricmp (p->lines[i]->keyword, "Time") == 0)) {
 
 /* Ignore request if we are deleting line */
 
@@ -749,9 +749,9 @@ void IniSectionWriteFloat (		/* Write a floating point value to the specified se
 {
 	/* Assume FLT_MAX is 3.40282e+038, the maximum significant digits that */
 	/* can be stored in this buf is 12. ((sizeof(buf))-sizeof("-.E+038")) */
- 	char	buf[20];
+	char	buf[20];
 	sprintf (buf, "%g", val);
- 	IniSectionWriteString (filename, section, keyword, buf);
+	IniSectionWriteString (filename, section, keyword, buf);
 }
 
 /****************************************************************************/
@@ -841,7 +841,7 @@ static	struct IniCache *cache[10] = {0};
 /* Save comment lines - any line that doesn't begin with a letter */
 
 		else if ((line[0] < 'A' || line[0] > 'Z') &&
-			 (line[0] < 'a' || line[0] > 'z')) {
+			(line[0] < 'a' || line[0] > 'z')) {
 			p->lines[i]->keyword = NULL;
 			p->lines[i]->value = (char *) malloc (strlen (line) + 1);
 			p->lines[i]->line_type = INI_LINE_COMMENT;
@@ -979,14 +979,14 @@ int analyzeTimeLine (
 /* Is the current time in this interval? */
 
 			if (current_time >= full_start_time &&
-			    current_time < full_end_time)
+				current_time < full_end_time)
 				goto winner;
 
 /* Now check for the really sick case, where end_time was less than */
 /* start_time and we've wrapped from day 7 back to day 1 */
 
 			if (end_time < start_time && day == 7 &&
-			    current_time < full_end_time - 7 * 24 * 60)
+				current_time < full_end_time - 7 * 24 * 60)
 				goto winner;
 
 /* No, see if this start time should be our new wakeup time. */
@@ -1030,7 +1030,7 @@ winner:	wakeup_t = (full_end_time - current_time) * 60;
 
 			this_full_start_time = day * 24 * 60 + start_time;
 			if (this_full_start_time != full_end_time &&
-			    this_full_start_time != full_end_time - 7 * 24 * 60) continue;
+				this_full_start_time != full_end_time - 7 * 24 * 60) continue;
 
 			this_full_end_time = day * 24 * 60 + end_time;
 			if (end_time < start_time) this_full_end_time += 24 * 60;
@@ -1089,8 +1089,8 @@ void parse_timed_ini_value (
 
 		else_clause = strstr (rest_of_line, " else ");
 		if (else_clause != NULL &&
-		    during_clause - rest_of_line == strlen (else_clause + 6) &&
-		    memcmp (rest_of_line, else_clause + 6, during_clause - rest_of_line) == 0) {
+			during_clause - rest_of_line == strlen (else_clause + 6) &&
+			memcmp (rest_of_line, else_clause + 6, during_clause - rest_of_line) == 0) {
 			*start_offset = (unsigned int) (rest_of_line - line);
 			*len = (unsigned int) (during_clause - rest_of_line);
 			*seconds_valid = min_wakeup_time;

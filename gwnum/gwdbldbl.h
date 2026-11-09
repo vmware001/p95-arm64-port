@@ -199,7 +199,7 @@ struct gwdbldbl_constants_partial {
 // Faster routines for sequential access with an iterator
 
 // Init FFT base counter for element zero
-void inline gwcached_init_zero (uint64_t *cached_data) {
+static void inline gwcached_init_zero (uint64_t *cached_data) {
 	base128[0] = 0xFFFFFFFFFFFFFFFFULL;	// Faster is_big_word & weight calculations if counter starts at just under 1.0 rather than the more logical 0.0
 	base128[1] = 0xFFFFFFFFULL;
 	partial_weight[0] = 0.0;		// Flag that cached partial weights are not set
@@ -209,7 +209,7 @@ void inline gwcached_init_zero (uint64_t *cached_data) {
 }
 
 // Init FFT base counter to arbitary element
-void inline gwcached_init (void *dd_data_arg, uint64_t *cached_data, unsigned long n) {
+static void inline gwcached_init (void *dd_data_arg, uint64_t *cached_data, unsigned long n) {
 	struct gwdbldbl_constants_partial *dd_data = (struct gwdbldbl_constants_partial *) dd_data_arg;
 
 	base128[0] = 0xFFFFFFFFFFFFFFFFULL;	// Faster is_big_word & weight calculations if counter starts at just under 1.0 rather than the more logical 0.0
@@ -232,7 +232,7 @@ void inline gwcached_init (void *dd_data_arg, uint64_t *cached_data, unsigned lo
 }
 
 // Update cached data for next FFT element
-void inline gwcached_next (void *dd_data_arg, uint64_t *cached_data, unsigned long n) {
+static void inline gwcached_next (void *dd_data_arg, uint64_t *cached_data, unsigned long n) {
 	struct gwdbldbl_constants_partial *dd_data = (struct gwdbldbl_constants_partial *) dd_data_arg;
 
 	// Maintain cached data for calculating FFT base (index * n / FFTLEN)
@@ -249,7 +249,7 @@ void inline gwcached_next (void *dd_data_arg, uint64_t *cached_data, unsigned lo
 }
 
 // Is this a big word?  Yes if adding fractional bpw to current base will cause a carry into integer part of base.
-int inline gwcached_is_big_word (void *dd_data_arg, uint64_t *cached_data) {
+static int inline gwcached_is_big_word (void *dd_data_arg, uint64_t *cached_data) {
 	struct gwdbldbl_constants_partial *dd_data = (struct gwdbldbl_constants_partial *) dd_data_arg;
 	uint64_t next_base128[2];
 #ifdef USE_INTRINSICS
@@ -264,13 +264,13 @@ int inline gwcached_is_big_word (void *dd_data_arg, uint64_t *cached_data) {
 	return (next_base128[1] >> 32);
 }
 
-inline uint32_t get_cached_dwpncol_counter (uint64_t *cached_data) { return (dwpncol_counter); }
-inline void inc_cached_dwpncol_counter (uint64_t *cached_data) { dwpncol_counter++; }
-inline void set_cached_dwpncol_counter (uint64_t *cached_data, uint32_t val) { dwpncol_counter = val; }
-inline uint32_t get_cached_dwpncol_value (uint64_t *cached_data) { return (dwpncol_value); }
-inline void inc_cached_dwpncol_value (uint64_t *cached_data) { dwpncol_value++; }
-inline void set_cached_dwpncol_value (uint64_t *cached_data, uint32_t val) { dwpncol_value = val; }
-inline void clear_cached_partial_weights (uint64_t *cached_data) { partial_weight[0] = partial_inv_weight[0] = 0.0; }
+static inline uint32_t get_cached_dwpncol_counter (uint64_t *cached_data) { return (dwpncol_counter); }
+static inline void inc_cached_dwpncol_counter (uint64_t *cached_data) { dwpncol_counter++; }
+static inline void set_cached_dwpncol_counter (uint64_t *cached_data, uint32_t val) { dwpncol_counter = val; }
+static inline uint32_t get_cached_dwpncol_value (uint64_t *cached_data) { return (dwpncol_value); }
+static inline void inc_cached_dwpncol_value (uint64_t *cached_data) { dwpncol_value++; }
+static inline void set_cached_dwpncol_value (uint64_t *cached_data, uint32_t val) { dwpncol_value = val; }
+static inline void clear_cached_partial_weights (uint64_t *cached_data) { partial_weight[0] = partial_inv_weight[0] = 0.0; }
 
 double gwcached_weight_sloppy (void *, uint64_t *, unsigned long, int32_t);
 double gwcached_weight_inverse_sloppy (void *, uint64_t *, unsigned long);

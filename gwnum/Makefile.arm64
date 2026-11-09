@@ -1,0 +1,242 @@
+# ============================================================================
+# gwnum 31.7 - Linux aarch64 build
+#
+# This library is the gwnum 31.7 "assembly converted to C" port (gwnum_c1):
+# every hand written x86 FFT/multiply/normalization kernel has been
+# mechanically converted to portable C using GCC/Clang vector extensions.
+# The 128-bit SSE/SSE2/SSE4.1 "xmm" registers are emulated for aarch64 by
+# 128-bit NEON vectors (see xarch.h).  Consequently:
+#   * there are no .asm/.obj files in this build,
+#   * only the 128-bit kernel family exists (BLEND/CORE/P4/K8/K10 tables);
+#     there is no AVX, FMA3 or AVX-512 implementation on ARM64, and the
+#     converted sources contain none.
+#
+# Default build: cross compile a static aarch64-linux-musl library with zig.
+#   mingw32-make -f Makefile.arm64                     (Windows host)
+#   make -f Makefile.arm64                             (Linux host, zig on PATH)
+#
+# Native x86-64 build of the *same* C sources (math validation only; the
+# host build is how the asm->C conversion is proven numerically correct):
+#   mingw32-make -f Makefile.arm64 ARCH=x86 \
+#       OBJDIR=../../_work/gwnum/obj-x86 LIBDIR=../../_work/gwnum/lib-x86
+#
+# Everything is overridable from the environment / command line:
+#   CC, CXX, AR, CFLAGS, CXXFLAGS, OBJDIR, LIBDIR, ZIG, MINGW_BIN
+# ============================================================================
+
+ARCH ?= arm64
+
+# ---- toolchain defaults (only used when the variable is not set by user) ---
+
+ZIG ?= D:/data/code/p95/_tools/zig-x86_64-windows-0.15.1/zig.exe
+MINGW_BIN ?= C:/ProgramData/chocolatey/lib/mingw/tools/install/mingw64/bin
+
+ifeq ($(ARCH),arm64)
+  DEF_CC  = $(ZIG) cc -target aarch64-linux-musl
+  DEF_CXX = $(ZIG) c++ -target aarch64-linux-musl
+  DEF_AR  = $(ZIG) ar
+else ifeq ($(ARCH),x86)
+  DEF_CC  = $(MINGW_BIN)/x86_64-w64-mingw32-gcc.exe
+  DEF_CXX = $(MINGW_BIN)/x86_64-w64-mingw32-g++.exe
+  DEF_AR  = $(MINGW_BIN)/ar.exe
+else
+  $(error ARCH must be arm64 or x86, got "$(ARCH)")
+endif
+
+ifeq ($(origin CC),default)
+  CC = $(DEF_CC)
+endif
+ifeq ($(origin CXX),default)
+  CXX = $(DEF_CXX)
+endif
+ifeq ($(origin AR),default)
+  AR = $(DEF_AR)
+endif
+
+# ---- directories / outputs -------------------------------------------------
+
+# Object files and the archives are build artifacts; keep them out of the
+# source tree by default (repo stays clean).  LIBDIR is where the mprime
+# makefile expects to find ../gwnum/gwnum.a and ../gwnum/polymult.a.
+OBJDIR ?= ../../_work/gwnum/obj-arm64
+LIBDIR ?= .
+
+LIB     = $(LIBDIR)/gwnum.a
+POLYLIB = $(LIBDIR)/polymult.a
+
+# ---- flags -----------------------------------------------------------------
+
+# -O2 exactly as gwnum_c1/CMakeLists.txt does.  -ffp-contract=on is important:
+# the FFT code must not let the compiler contract expressions with "fast"
+# semantics (extra precision / FMA contraction beyond C rules can change the
+# roundoff behaviour the carry logic was tuned for).
+#
+# USE_SQLITE3 is required for a real mprime build: gwbench.c implements the
+# benchmark database (gwbench_add_data / gwbench_write_data /
+# gwbench_get_num_benchmarks, called by mprime's commonb.c) only when
+# USE_SQLITE3 is defined.  The official Linux makefile compiles gwnum with
+# -DUSE_SQLITE3 -I../sqlite-amalgamation-3420000 too; gwbench.c #includes
+# sqlite3.c directly, so sqlite3 ends up inside gwbench.o (do NOT also link
+# a separate sqlite3.o - that would create duplicate symbols).
+# Set USE_SQLITE3=0 to build a slimmer library without the benchmark DB.
+USE_SQLITE3 ?= 1
+ifeq ($(USE_SQLITE3),1)
+  SQLITE_DEFS = -DUSE_SQLITE3 -I../sqlite-amalgamation-3420000
+else
+  SQLITE_DEFS =
+endif
+#
+# Include path note: only -Iqd is added (mirroring gwnum_c1/CMakeLists.txt).
+# Do NOT add -I. here: cpuid.c includes the *system* <cpuid.h> on x86, and -I.
+# would shadow it with gwnum's own cpuid.h (quoted includes already resolve
+# relative to each source file, and subdir kernels use ../gwnum.h).
+# This Makefile builds only the portable scalar ("dbl") polymult implementation.
+# -DPOLYMULT_FORCE_SCALAR tells polymult.c to mask the vector-ISA CPU flags in its
+# private handle and dispatch to the scalar code (the SSE2/AVX/FMA/AVX-512
+# variants are x86 intrinsics and are not ported to ARM64 yet).
+POLYMULT_DEFS = -DPOLYMULT_FORCE_SCALAR
+
+CFLAGS_COMMON   = -O2 -ffp-contract=on -Iqd $(SQLITE_DEFS) $(POLYMULT_DEFS)
+CXXFLAGS_COMMON = -O2 -ffp-contract=on -Iqd $(SQLITE_DEFS)
+
+CFLAGS   ?= $(CFLAGS_COMMON)
+CXXFLAGS ?= $(CXXFLAGS_COMMON)
+
+DEPFLAGS = -MMD -MP
+
+ifeq ($(ARCH),x86)
+  CFLAGS   += -march=x86-64-v2
+  CXXFLAGS += -march=x86-64-v2
+endif
+
+# ---- sources ---------------------------------------------------------------
+
+# Core library sources (top level).  fftsg.c is the ancient generic FFT and is
+# not part of the 64-bit library (upstream make64 / gwnum_c1 CMakeLists both
+# omit it); cpuid_xsave.c is x86-only and added for ARCH=x86.
+# mt19937ar.c is NOT compiled separately: gwnum.c #includes it directly (same
+# as upstream make64, which also has no mt19937ar.o); building it separately
+# would create duplicate init_genrand/genrand_int32 symbols.
+CORE_SRCS = \
+	cpuid.c radix.c gwbench.c gwdbldbl.cpp gwini.c gwthread.cpp \
+	gwtables.c gwutil.c gwnum.c giants.c multtable2.c mult_gwinfo.c \
+	gianthlp.c xarch.c
+
+# Converted radix-4 kernels
+R4_SRCS = \
+	r4/r4_p4.c r4/r4_core.c r4/r4_k8.c r4/r4_k10.c \
+	r4/r4dwpn_core1.c r4/r4dwpn_core2.c r4/r4dwpn_core3.c \
+	r4/r4dwpn_core4.c r4/r4dwpn_core5.c \
+	r4/r4dwpnac_core1.c r4/r4dwpnac_core2.c \
+	r4/r4dwpn_k10_1.c r4/r4dwpn_k10_2.c r4/r4dwpn_k10_3.c \
+	r4/r4dwpnac_k10_1.c \
+	r4/r4dwpn_k8_1.c r4/r4dwpn_k8_2.c r4/r4dwpnac_k8_1.c \
+	r4/r4dwpn_p4_1.c r4/r4dwpn_p4_2.c r4/r4dwpn_p4_3.c \
+	r4/r4dwpnac_p4_1.c \
+	r4/r4pass2_8.c r4/r4pass2_768.c r4/r4pass2_10.c r4/r4pass2_1280.c \
+	r4/r4pass2_1536.c r4/r4pass2_11.c r4/r4pass2_2304.c \
+	r4/r4pass2_2560.c r4/r4pass2_3072.c r4/r4pass2_3840.c \
+	r4/r4pass2_12.c r4/r4pass2_4608.c r4/r4pass2_5120.c \
+	r4/r4pass2_6144.c r4/r4pass2_6400.c r4/r4pass2_7680.c \
+	r4/r4pass2_13.c r4/r4pass2_9216.c r4/r4pass2_10240.c \
+	r4/r4pass2_12288.c r4/r4pass2_12800.c r4/r4pass2_15360.c \
+	r4/r4pass2_14.c r4/r4pass2_25600.c
+
+# Converted "hg" (radix-4/8 one-pass) kernels
+HG_SRCS = \
+	hg/hg_blend.c hg/hg_core.c hg/hg_p4.c hg/hg_k8.c hg/hg_k10.c \
+	hg/hgonepass.c hg/hgpass2_8.c hg/hgpass2_11.c hg/hgpass2_12.c
+
+# Converted x86 128-bit multiply/normalization kernels
+X_SRCS = \
+	x/xmult1a.c x/xmult2.c x/xmult2a.c x/xmult3.c x/xmult3a.c \
+	x/xmult1ax.c x/xmult2ax.c x/xmult3ax.c x/xnormal.c
+
+# x86-only extras: SSE4.1 rounding variants (not needed/not compiled on ARM64,
+# where all rounding is native) and the AMD K8 inorm variants (gwnum.c maps
+# K8 -> CORE on non-x86).
+X86_EXTRA_SRCS = \
+	x/xmult2a_k8.c x/xmult3a_k8.c \
+	x/xmult1a_sse41.c x/xmult2a_sse41.c x/xmult3a_sse41.c \
+	x/xmult2a_k8_sse41.c x/xmult3a_k8_sse41.c \
+	cpuid_xsave.c
+
+POLY_SRCS = polymult.c
+
+SRCS = $(CORE_SRCS) $(R4_SRCS) $(HG_SRCS) $(X_SRCS) $(POLY_SRCS)
+ifeq ($(ARCH),x86)
+  SRCS += $(X86_EXTRA_SRCS)
+endif
+
+# Flatten to object names (basenames are unique across the source dirs).
+OBJS      = $(addprefix $(OBJDIR)/,$(notdir $(SRCS:.cpp=.o)))
+OBJS     := $(OBJS:.c=.o)
+GNUM_OBJS = $(filter-out $(OBJDIR)/polymult.o,$(OBJS))
+POLY_OBJS = $(OBJDIR)/polymult.o
+
+vpath %.c r4 hg x
+vpath %.cpp .
+
+DEPS = $(OBJS:.o=.d)
+
+# ---- rules -----------------------------------------------------------------
+
+.PHONY: all clean print-config
+all: $(LIB) $(POLYLIB)
+
+$(LIB): $(GNUM_OBJS) | $(OBJDIR)
+	@echo "AR  $@"
+	$(AR) -rs $@ $(GNUM_OBJS)
+
+$(POLYLIB): $(POLY_OBJS) | $(OBJDIR)
+	@echo "AR  $@"
+	$(AR) -rs $@ $(POLY_OBJS)
+
+ifeq ($(OS),Windows_NT)
+$(OBJDIR):
+	-mkdir $(subst /,\,$(OBJDIR))
+else
+$(OBJDIR):
+	-mkdir -p $(OBJDIR)
+endif
+
+$(OBJDIR)/%.o: %.c | $(OBJDIR)
+	$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(OBJDIR)/%.o: %.cpp | $(OBJDIR)
+	$(CXX) $(CXXFLAGS) $(DEPFLAGS) -c $< -o $@
+
+# x86-only per-file flags (mirrors gwnum_c1/CMakeLists.txt)
+ifeq ($(ARCH),x86)
+$(OBJDIR)/xmult1a_sse41.o:      CFLAGS += -msse4.1
+$(OBJDIR)/xmult2a_sse41.o:      CFLAGS += -msse4.1
+$(OBJDIR)/xmult3a_sse41.o:      CFLAGS += -msse4.1
+$(OBJDIR)/xmult2a_k8_sse41.o:   CFLAGS += -msse4.1
+$(OBJDIR)/xmult3a_k8_sse41.o:   CFLAGS += -msse4.1
+$(OBJDIR)/cpuid_xsave.o:        CFLAGS += -mxsave
+endif
+
+print-config:
+	@echo "ARCH     = $(ARCH)"
+	@echo "CC       = $(CC)"
+	@echo "CXX      = $(CXX)"
+	@echo "AR       = $(AR)"
+	@echo "CFLAGS   = $(CFLAGS)"
+	@echo "CXXFLAGS = $(CXXFLAGS)"
+	@echo "OBJDIR   = $(OBJDIR)"
+	@echo "LIBDIR   = $(LIBDIR)"
+	@echo "USE_SQLITE3 = $(USE_SQLITE3)"
+	@echo "sources  = $(words $(SRCS))"
+
+ifeq ($(OS),Windows_NT)
+clean:
+	-del /q $(subst /,\,$(OBJS)) 2>NUL
+	-del /q $(subst /,\,$(DEPS)) 2>NUL
+	-del /q $(subst /,\,$(LIB)) 2>NUL
+	-del /q $(subst /,\,$(POLYLIB)) 2>NUL
+else
+clean:
+	-rm -f $(OBJS) $(DEPS) $(LIB) $(POLYLIB)
+endif
+
+-include $(DEPS)

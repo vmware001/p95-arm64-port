@@ -27,7 +27,7 @@
 /* Turn on #define that will disable extended precision floating point */
 /* registers, as they wreak havoc with double-double library routines. */
 
-#ifndef X86_64
+#if defined(__i386__) || defined(_M_IX86)
 #define x86
 #endif
 
@@ -253,7 +253,15 @@ void gwasm_constants (
 	P556 = double (sine1);
 	P831_P556 = double (cosine1 / P556);
 	P556_P195 = double (sine1 / P195);
-
+#if 0
+	puts("gwasm_constants");
+	for(unsigned int i=0; i<43; i++)
+	{
+		printf("[%u] = %.17f %a %llX\n", i, asm_values[i], asm_values[i], *(unsigned long long*)(asm_values+i));
+		//printf("%a,	// %.17f\n", asm_values[i], asm_values[i]);
+	}
+	printf("%a,	// %.17f\n", (double)0x18000000000000, (double)0x18000000000000);
+#endif
 	END_x86_FIX
 }
 

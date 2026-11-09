@@ -5,7 +5,7 @@
 |
 | This file contains routines to determine the CPU type and speed.
 +---------------------------------------------------------------------*/
-
+//#define ASM1
 /* Include files */
 
 #include <stdlib.h>
@@ -21,6 +21,7 @@
 #endif
 #ifdef __linux__
 #include <stdio.h>
+#include <unistd.h>	/* PORTING: sysconf (_SC_NPROCESSORS_ONLN) for aarch64 topology */
 #endif
 #ifdef __OS2__
 #define INCL_DOSPROFILE
@@ -35,6 +36,16 @@
 #include "cpuid.h"
 #include "gwthread.h"
 #include "gwutil.h"
+
+#if defined(__i386__) || defined(_M_IX86) || defined(__x86_64__) || defined(_M_X64)
+#define X86_OR_X64
+#endif
+
+#ifdef X86_OR_X64
+#include <x86intrin.h>
+#include <immintrin.h>
+#include <cpuid.h>
+#endif
 
 #define safe_strcpy(d,s)	memmove (d, s, strlen (s) + 1)
 
@@ -68,6 +79,7 @@ int	CPU_ARCHITECTURE = 0;		/* Our attempt to derive the CPU architecture. */
 
 /* Masm routines to burn up a specific number of clocks */
 
+#ifdef ASM1
 void one_hundred_thousand_clocks_help ();
 void one_million_clocks_help ();
 
@@ -86,6 +98,67 @@ void one_million_clocks (void)
 	/* If a future chip, needs to call a different helper routine, we'd make that choice here. */
 	one_million_clocks_help ();
 }
+
+#else
+static volatile int test624;
+void one_hundred_thousand_clocks (void)
+{
+	int a=test624;
+	for(int i=25000; i>=0; i--)
+		a = (a + 1 ^ 1) + 1 ^ 1;
+	test624=a;
+}
+void one_million_clocks (void)
+{
+	int a=test624;
+	for(int i=250000; i>=0; i--)
+		a = (a + 1 ^ 1) + 1 ^ 1;
+	test624=a;
+}
+
+#if defined(__has_builtin) && __has_builtin(__builtin_readcyclecounter)
+#define rdtsc1() __builtin_readcyclecounter()
+#elif defined(X86_OR_X64)
+#define rdtsc1() __rdtsc()
+#elif defined(_M_ARM64)
+#define rdtsc1() _ReadStatusReg(ARM64_PMCCNTR_EL0)
+#elif defined(__aarch64__) && !defined(__NO_INLINE_ASM__)
+static inline uint64_t rdtsc1() {
+	uint64_t a;
+	__asm__ volatile("mrs %0, cntvct_el0" : "=r" (a));
+	return a;
+}
+#else
+#define NO_RDTSC
+#endif
+
+#if defined(__x86_64__) && !defined(_MSC_VER) && !defined(__NO_INLINE_ASM__)
+void erdtsc(uint32_t *hi, uint32_t *lo) {
+	__asm__ volatile("rdtsc" : "=a"(*lo), "=d"(*hi));
+}
+#elif !defined(NO_RDTSC)
+void erdtsc(uint32_t *hi, uint32_t *lo) {
+	uint64_t a=rdtsc1();
+	*lo = (uint32_t)a;
+	*hi = a >> 32;
+}
+#endif
+
+#if defined(X86_OR_X64)
+void ecpuid (struct cpuid_data *t) {
+	__get_cpuid_count(t->EAX, t->ECX, &t->EAX,&t->EBX,&t->ECX,&t->EDX);
+}
+#else
+/* PORTING (ARM64): cpuid.h exposes the x86 CPUID/XGETBV wrappers and mprime's */
+/* cpuid_dump() calls them through the Cpuid()/Xgetbv() macros, so non-x86    */
+/* builds still need the symbols.  There is no x86 CPUID on ARM64 - report    */
+/* all-zero registers (mprime treats these as "unknown").                     */
+void ecpuid (struct cpuid_data *t) { memset (t, 0, sizeof (*t)); }
+void exgetbv (struct cpuid_data *t) { memset (t, 0, sizeof (*t)); }
+#endif
+unsigned long ecpuidsupport (void) {return 1;}
+void fpu_init (void) {};
+#endif
 
 /* Return the number of CPUs in the system */
 
@@ -135,9 +208,9 @@ unsigned int num_cpus (void)
 /* The MS 64-bit compiler does not allow inline assembly.  Fortunately, any */
 /* CPU capable of running x86-64 bit code can execute these instructions. */
 
-#ifdef X86_64
+#if !defined(__i386__) && !defined(_M_IX86)
 
-int canExecInstruction (
+static inline int canExecInstruction (
 	unsigned long cpu_flag)
 {
 	return (TRUE);
@@ -175,8 +248,9 @@ int canExecInstruction (
 			break;
 /* WARNING: On Mac OS X 64-bit executable, executing this PADDB instruction will cause */
 /* the next call to log in math.h to return NaN.  Submitted bug to Apple: Bug ID# 6478193. */
-		case CPU_MMX:		/* PADDB */
-			__asm__ __volatile__ (".byte 0x0F\n .byte 0xFC\n .byte 0xC0\n");
+/* Use EMMS or FNINIT as a possible workaround. */
+		case CPU_MMX:		/* PADDB, EMMS */
+			__asm__ __volatile__ (".byte 0x0F\n .byte 0xFC\n .byte 0xC0\n .byte 0x0F\n .byte 0x77\n");
 			break;
 		case CPU_SSE:		/* ORPS */
 			__asm__ __volatile__ (".byte 0x0F\n .byte 0x56\n .byte 0xC0\n");
@@ -272,6 +346,310 @@ void busy_loop (void *arg)
 /* See Intel's document AP-485 for using CPUID on Intel processors */
 /* AMD and VIA have similar documents */
 
+/*----------------------------------------------------------------------+
+| PORTING: Linux/ARM64 CPU detection.                                   |
+|                                                                       |
+| gwnum_c1 returned placeholder values on non-x86 (brand "unknown",     |
+| 100 MHz, 1 core, no caches).  On Linux/aarch64 the information is     |
+| available from /proc and /sys:                                        |
+|   brand    /proc/cpuinfo "model name" / "Hardware" / "Processor",     |
+|            else /proc/device-tree/model                               |
+|   speed    /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq,     |
+|            fallback scaling_max_freq, then /proc/cpuinfo BogoMIPS/2   |
+|   cores    sysconf(_SC_NPROCESSORS_ONLN) + cpuN/topology/{core_id,    |
+|            physical_package_id} (handles SMT correctly)               |
+|   caches   /sys/devices/system/cpu/cpu0/cache/indexN/{level,type,     |
+|            size,coherency_line_size}                                  |
+|                                                                       |
+| CPU_FLAGS stays at the 128-bit "emulated SSE" set: the converted      |
+| kernels are SSE/SSE2/SSE4.1 code implemented with NEON, and there is  |
+| no AVX/FMA3/AVX-512 implementation on ARM64 (see xarch.h), so those   |
+| bits must remain clear for gwnum to select the 128-bit code paths.    |
++----------------------------------------------------------------------*/
+
+#if defined(__aarch64__) && defined(__linux__)
+
+/* Read a small text file (first line) into buf; strip trailing CR/LF/space. */
+static int arm64_linux_read_text_file (const char *path, char *buf, int buflen)
+{
+	FILE *f;
+	int len;
+
+	buf[0] = 0;
+	f = fopen (path, "r");
+	if (f == NULL) return (-1);
+	if (fgets (buf, buflen, f) == NULL) { fclose (f); return (-1); }
+	fclose (f);
+	len = (int) strlen (buf);
+	while (len > 0 && (buf[len-1] == '\n' || buf[len-1] == '\r' ||
+			   buf[len-1] == ' ' || buf[len-1] == '\t')) buf[--len] = 0;
+	return (0);
+}
+
+/* Read an integer from a small text file.  Returns -1 if unavailable. */
+static int arm64_linux_read_int_file (const char *path)
+{
+	char buf[64];
+	char *end;
+	long val;
+
+	if (arm64_linux_read_text_file (path, buf, sizeof (buf)) != 0) return (-1);
+	if (buf[0] == 0) return (-1);
+	val = strtol (buf, &end, 10);
+	if (end == buf) return (-1);
+	return ((int) val);
+}
+
+/* Look up a "key : value" line in a /proc/cpuinfo-style text blob. */
+static char * arm64_linux_cpuinfo_lookup (
+	const char *cpuinfo,
+	const char *key,
+	char *out,
+	int outlen)
+{
+	int keylen = (int) strlen (key);
+	const char *p = cpuinfo;
+
+	while (*p != 0) {
+		const char *eol = strchr (p, '\n');
+		int linelen = eol ? (int) (eol - p) : (int) strlen (p);
+
+		if (linelen > keylen && !strncmp (p, key, keylen)) {
+			int i;
+			const char *colon = NULL;
+			for (i = keylen; i < linelen; i++) {
+				if (p[i] == ':') { colon = p + i; break; }
+				if (p[i] != ' ' && p[i] != '\t') break;
+			}
+			if (colon != NULL) {
+				const char *v = colon + 1;
+				const char *e = p + linelen;
+				int n;
+				while (v < e && (*v == ' ' || *v == '\t')) v++;
+				while (e > v && (e[-1] == ' ' || e[-1] == '\t')) e--;
+				n = (int) (e - v);
+				if (n < 0) n = 0;
+				if (n >= outlen) n = outlen - 1;
+				memcpy (out, v, n);
+				out[n] = 0;
+				return (out);
+			}
+		}
+		if (eol == NULL) break;
+		p = eol + 1;
+	}
+	return (NULL);
+}
+
+/* sysfs cache size strings look like "48K" / "2048K" / "32768K"; return KB. */
+static int arm64_linux_parse_cache_kb (const char *s)
+{
+	char *end;
+	long val;
+
+	if (s == NULL || *s == 0) return (-1);
+	val = strtol (s, &end, 10);
+	if (end == s) return (-1);
+	if (*end == 'M' || *end == 'm') return ((int) (val * 1024));
+	if (*end == 'G' || *end == 'g') return ((int) (val * 1024 * 1024));
+	return ((int) val);		/* "K" (sysfs unit) or unitless */
+}
+
+/* Fill the fixed-size global CPU_BRAND (48 chars max) safely. */
+static void arm64_linux_set_brand (const char *brand)
+{
+	int len = (int) strlen (brand);
+	if (len > (int) sizeof (CPU_BRAND) - 1) len = (int) sizeof (CPU_BRAND) - 1;
+	memmove (CPU_BRAND, brand, len);
+	CPU_BRAND[len] = 0;
+}
+
+/* Gather all Linux/ARM64 CPU information into the global CPU_* variables. */
+static void arm64_linux_cpu_info (void)
+{
+	static char cpuinfo[16384];
+	char path[256], value[128];
+	int i, len;
+
+	/* Defaults, also used as fallback when /proc and /sys are unavailable */
+	CPU_FLAGS = CPU_CMOV | CPU_MMX | CPU_PREFETCH | CPU_SSE | CPU_SSE2
+		  | CPU_SSE3 | CPU_SSSE3 | CPU_SSE41 | CPU_SSE42;
+	CPU_ARCHITECTURE = CPU_ARCHITECTURE_OTHER;
+	CPU_FAMILY = 0;
+	CPU_MODEL = 0;
+	CPU_SIGNATURE = 0;
+	CPU_CORES = 1;
+	CPU_HYPERTHREADS = 1;
+	CPU_L1_CACHE_SIZE = -1;
+	CPU_L2_CACHE_SIZE = -1;
+	CPU_L3_CACHE_SIZE = -1;
+	CPU_L1_CACHE_LINE_SIZE = -1;
+	CPU_L2_CACHE_LINE_SIZE = -1;
+	CPU_L3_CACHE_LINE_SIZE = -1;
+	CPU_L1_DATA_TLBS = -1;
+	CPU_L2_DATA_TLBS = -1;
+	CPU_L3_DATA_TLBS = -1;
+	CPU_L1_SET_ASSOCIATIVE = -1;
+	CPU_L2_SET_ASSOCIATIVE = -1;
+	CPU_L3_SET_ASSOCIATIVE = -1;
+	arm64_linux_set_brand ("ARM64 Linux");
+
+	/* Slurp /proc/cpuinfo */
+	cpuinfo[0] = 0;
+	{
+		FILE *f = fopen ("/proc/cpuinfo", "r");
+		if (f != NULL) {
+			len = (int) fread (cpuinfo, 1, sizeof (cpuinfo) - 1, f);
+			if (len < 0) len = 0;
+			cpuinfo[len] = 0;
+			fclose (f);
+		}
+	}
+
+	/* CPU brand: /proc/cpuinfo then the device-tree model string */
+	value[0] = 0;
+	if (arm64_linux_cpuinfo_lookup (cpuinfo, "model name", value, sizeof (value)) == NULL
+	 && arm64_linux_cpuinfo_lookup (cpuinfo, "Hardware", value, sizeof (value)) == NULL
+	 && arm64_linux_cpuinfo_lookup (cpuinfo, "Processor", value, sizeof (value)) == NULL
+	 && arm64_linux_read_text_file ("/proc/device-tree/model", value, sizeof (value)) != 0)
+		value[0] = 0;
+	if (value[0] != 0) arm64_linux_set_brand (value);
+
+	/* MIDR_EL1 gives the implementer/part number; keep it for cpuid_dump() */
+#if defined(__GNUC__) || defined(__clang__)
+	{
+		uint64_t midr = 0;
+		__asm__ volatile ("mrs %0, midr_el1" : "=r" (midr));
+		CPU_SIGNATURE = (unsigned int) midr;
+		CPU_FAMILY = (int) ((midr >> 24) & 0xFF);	/* implementer */
+		CPU_MODEL = (int) ((midr >> 4) & 0xFFF);	/* part number */
+	}
+#endif
+
+	/* CPU speed: cpufreq (kHz) first, then BogoMIPS/2, then a sane default */
+	CPU_SPEED = 0.0;
+	i = arm64_linux_read_int_file ("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq");
+	if (i <= 0)
+		i = arm64_linux_read_int_file ("/sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq");
+	if (i > 0) CPU_SPEED = (double) i / 1000.0;
+	if (CPU_SPEED <= 0.0 &&
+	    arm64_linux_cpuinfo_lookup (cpuinfo, "BogoMIPS", value, sizeof (value)) != NULL)
+		CPU_SPEED = atof (value) / 2.0;		/* ARM BogoMIPS is about 2x MHz */
+	if (CPU_SPEED <= 0.0) CPU_SPEED = 100.0;
+
+	/* Logical CPUs: sysconf, falling back to counting /proc/cpuinfo entries */
+	{
+		long online = sysconf (_SC_NPROCESSORS_ONLN);
+		int logical = (online > 0) ? (int) online : 0;
+		int physical = 0;
+
+		if (logical <= 0) {
+			const char *p = cpuinfo;
+			while (*p != 0) {
+				if (!strncmp (p, "processor", 9) &&
+				    (p[9] == ' ' || p[9] == '\t' || p[9] == ':')) logical++;
+				{
+					const char *eol = strchr (p, '\n');
+					if (eol == NULL) break;
+					p = eol + 1;
+				}
+			}
+		}
+		if (logical < 1) logical = 1;
+
+		/* Physical cores = unique (physical_package_id, core_id) pairs */
+		if (logical <= 4096) {
+			static int pkg_of_cpu[4096], core_of_cpu[4096];
+			int np = logical, ok = 1;
+			for (i = 0; i < np && ok; i++) {
+				sprintf (path, "/sys/devices/system/cpu/cpu%d/topology/physical_package_id", i);
+				pkg_of_cpu[i] = arm64_linux_read_int_file (path);
+				sprintf (path, "/sys/devices/system/cpu/cpu%d/topology/core_id", i);
+				core_of_cpu[i] = arm64_linux_read_int_file (path);
+				if (pkg_of_cpu[i] < 0 || core_of_cpu[i] < 0) ok = 0;
+			}
+			if (ok) {
+				int j;
+				for (i = 0; i < np; i++) {
+					int dup = 0;
+					for (j = 0; j < i; j++)
+						if (pkg_of_cpu[j] == pkg_of_cpu[i] &&
+						    core_of_cpu[j] == core_of_cpu[i]) { dup = 1; break; }
+					if (!dup) physical++;
+				}
+			}
+		}
+		if (physical < 1 || physical > logical) physical = logical;
+		CPU_CORES = (unsigned int) physical;
+		CPU_HYPERTHREADS = (unsigned int) (logical / physical);
+		if (CPU_HYPERTHREADS < 1) CPU_HYPERTHREADS = 1;
+	}
+
+	/* Caches: walk /sys/devices/system/cpu/cpu0/cache/index* */
+	{
+		int l1 = -1, l2 = -1, l3 = -1;
+		int l1line = -1, l2line = -1, l3line = -1;
+		int l1unified = -1, l1unifiedline = -1;
+
+		for (i = 0; i < 16; i++) {
+			int level, line, kb;
+			char type[32];
+
+			sprintf (path, "/sys/devices/system/cpu/cpu0/cache/index%d/level", i);
+			level = arm64_linux_read_int_file (path);
+			if (level < 0) continue;
+			sprintf (path, "/sys/devices/system/cpu/cpu0/cache/index%d/type", i);
+			if (arm64_linux_read_text_file (path, type, sizeof (type)) != 0) type[0] = 0;
+			sprintf (path, "/sys/devices/system/cpu/cpu0/cache/index%d/size", i);
+			if (arm64_linux_read_text_file (path, value, sizeof (value)) != 0) value[0] = 0;
+			kb = arm64_linux_parse_cache_kb (value);
+			sprintf (path, "/sys/devices/system/cpu/cpu0/cache/index%d/coherency_line_size", i);
+			line = arm64_linux_read_int_file (path);
+
+			if (level == 1) {
+				if (!strcmp (type, "Data")) { l1 = kb; l1line = line; }
+				else if (!strcmp (type, "Unified")) { l1unified = kb; l1unifiedline = line; }
+			}
+			else if (level == 2) { l2 = kb; l2line = line; }
+			else if (level == 3) { l3 = kb; l3line = line; }
+		}
+		if (l1 < 0) { l1 = l1unified; l1line = l1unifiedline; }
+		CPU_L1_CACHE_SIZE = (l1 > 0) ? l1 : -1;
+		CPU_L2_CACHE_SIZE = (l2 > 0) ? l2 : -1;
+		CPU_L3_CACHE_SIZE = (l3 > 0) ? l3 : -1;
+		CPU_L1_CACHE_LINE_SIZE = (l1line > 0) ? l1line : -1;
+		CPU_L2_CACHE_LINE_SIZE = (l2line > 0) ? l2line : -1;
+		CPU_L3_CACHE_LINE_SIZE = (l3line > 0) ? l3line : -1;
+	}
+}
+
+void guessCpuType (void)
+{
+	arm64_linux_cpu_info ();
+}
+
+#elif !defined(__i386__) && !defined(_M_IX86) && !defined(__x86_64__) && !defined(_M_X64)
+void guessCpuType (void)
+{
+	CPU_BRAND[0] = 0;
+	memcpy(CPU_BRAND, "unknown", 8);
+	CPU_SPEED = 100.0;
+	CPU_FLAGS = CPU_CMOV | CPU_MMX | CPU_PREFETCH | CPU_SSE | CPU_SSE2 | CPU_SSE3 | CPU_SSSE3 | CPU_SSE41 | CPU_SSE42 /* | CPU_AVX | CPU_FMA3 | CPU_AVX2*/;
+	CPU_CORES = 1;
+	CPU_HYPERTHREADS = 1;
+	CPU_L1_CACHE_SIZE = -1;
+	CPU_L2_CACHE_SIZE = -1;
+	CPU_L3_CACHE_SIZE = -1;
+	CPU_L1_CACHE_LINE_SIZE = -1;
+	CPU_L2_CACHE_LINE_SIZE = -1;
+	CPU_L3_CACHE_LINE_SIZE = -1;
+	CPU_L1_DATA_TLBS = -1;
+	CPU_L2_DATA_TLBS = -1;
+	CPU_L3_DATA_TLBS = -1;
+	CPU_SIGNATURE = 0;
+	CPU_ARCHITECTURE = CPU_ARCHITECTURE_OTHER;
+}
+#else
 void guessCpuType (void)
 {
 	struct cpuid_data reg;
@@ -504,79 +882,79 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 		if (! (CPU_FLAGS & CPU_SSE2))
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_PRE_SSE2;
 		else if ((CPU_FAMILY == 15 && CPU_MODEL <= 4) ||
-			 (CPU_FAMILY == 15 && CPU_MODEL == 6))
+			(CPU_FAMILY == 15 && CPU_MODEL == 6))
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_PENTIUM_4;
 		else if ((CPU_FAMILY == 6 && CPU_MODEL == 9) ||
-			 (CPU_FAMILY == 6 && CPU_MODEL == 13))
+			(CPU_FAMILY == 6 && CPU_MODEL == 13))
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_PENTIUM_M;
 		else if (CPU_FAMILY == 6 && CPU_MODEL == 14)
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_CORE;
 		else if ((CPU_FAMILY == 6 && CPU_MODEL == 15) ||
-			 (CPU_FAMILY == 6 && CPU_MODEL == 22) ||
-			 (CPU_FAMILY == 6 && CPU_MODEL == 23) ||
-			 (CPU_FAMILY == 6 && CPU_MODEL == 29))		// Xeon MP (based on Core 2 technology)
+			(CPU_FAMILY == 6 && CPU_MODEL == 22) ||
+			(CPU_FAMILY == 6 && CPU_MODEL == 23) ||
+			(CPU_FAMILY == 6 && CPU_MODEL == 29))		// Xeon MP (based on Core 2 technology)
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_CORE_2;
 		else if ((CPU_FAMILY == 6 && CPU_MODEL == 26) ||	// Core i7
-			 (CPU_FAMILY == 6 && CPU_MODEL == 30) ||	// Core i5/i7
-			 (CPU_FAMILY == 6 && CPU_MODEL == 46) ||	// Xeon MP (based on Core i7 technology)
-			 (CPU_FAMILY == 6 && CPU_MODEL == 47) ||	// Xeon MP (based on Sandy Bridge technology)
-			 (CPU_FAMILY == 6 && CPU_MODEL == 69) ||	// Xeon MP (based on Haswell technology)
-			 (CPU_FAMILY == 6 && CPU_MODEL == 44) ||	// Core i7 (based on Sandy Bridge technology)
-			 (CPU_FAMILY == 6 && CPU_MODEL == 37) ||	// Core i3, mobile i5/i7 (based on Sandy Bridge technology)
-			 (CPU_FAMILY == 6 && CPU_MODEL == 42) ||	// Core i7 (based on Sandy Bridge technology)
-			 (CPU_FAMILY == 6 && CPU_MODEL == 45) ||	// Core i7 (based on Sandy Bridge-E technology)
-			 (CPU_FAMILY == 6 && CPU_MODEL == 58) ||	// Core i7 (based on Ivy Bridge technology)
-			 (CPU_FAMILY == 6 && CPU_MODEL == 62) ||	// Core i7 (based on Ivy Bridge-E technology)
-			 (CPU_FAMILY == 6 && CPU_MODEL == 60) ||	// Core i7 (based on Haswell technology)
-			 (CPU_FAMILY == 6 && CPU_MODEL == 63) ||	// Core i7 (based on Haswell-E technology)
-			 (CPU_FAMILY == 6 && CPU_MODEL == 69) ||	// Core i7, mobile (based on Haswell technology)
-			 (CPU_FAMILY == 6 && CPU_MODEL == 70) ||	// Core i7 (based on Haswell technology)
-			 (CPU_FAMILY == 6 && CPU_MODEL == 61) ||	// Core i7 (based on Broadwell technology)
-			 (CPU_FAMILY == 6 && CPU_MODEL == 79) ||	// Core i7 (based on Broadwell-E technology)
-			 (CPU_FAMILY == 6 && CPU_MODEL == 71) ||	// Core i7, mobile (based on Broadwell technology)
-			 (CPU_FAMILY == 6 && CPU_MODEL == 85) ||	// Core i9 (based on Skylake-X technology)
-			 (CPU_FAMILY == 6 && CPU_MODEL == 86) ||	// Core i7, mobile (based on Broadwell technology)
-			 (CPU_FAMILY == 6 && CPU_MODEL == 94) ||	// Core i7 (based on Skylake technology)
-			 (CPU_FAMILY == 6 && CPU_MODEL == 142) ||	// Core i7, (based on Kaby Lake technology)
-			 (CPU_FAMILY == 6 && CPU_MODEL == 158) ||	// Core i7, mobile (based on Coffee Lake technology)
-			 (CPU_FAMILY == 6 && CPU_MODEL == 168) ||	// Core i7, (based on Coffee Lake technology)
-			 (CPU_FAMILY == 6 && CPU_MODEL == 78) ||	// Core i3/i5/i7, mobile (based on Skylake technology)
-			 (CPU_FAMILY == 6 && CPU_MODEL == 102) ||	// Core i3/i5/i7, Cannon Lake
-			 (CPU_FAMILY == 6 && CPU_MODEL == 165) ||	// Core i3/i5/i7, Comet Lake
-			 (CPU_FAMILY == 6 && CPU_MODEL == 106) ||	// Core i3/i5/i7, Ice Lake
-			 (CPU_FAMILY == 6 && CPU_MODEL == 108) ||	// Core i3/i5/i7, Ice Lake
-			 (CPU_FAMILY == 6 && CPU_MODEL == 125) ||	// Core i3/i5/i7, Ice Lake
-			 (CPU_FAMILY == 6 && CPU_MODEL == 126) ||	// Core i3/i5/i7, Ice Lake
-			 (CPU_FAMILY == 6 && CPU_MODEL == 143) ||	// Core i3/i5/i7, Sapphire Rapids
-			 (CPU_FAMILY == 6 && CPU_MODEL == 140) ||	// Core i3/i5/i7, Tiger Lake
-			 (CPU_FAMILY == 6 && CPU_MODEL == 141) ||	// Core i3/i5/i7, Tiger Lake
-			 (CPU_FAMILY == 6 && CPU_MODEL == 167) ||	// Core i3/i5/i7, Rocket Lake
-			 (CPU_FAMILY == 6 && CPU_MODEL == 154) ||	// Core i3/i5/i7, Alder Lake
-			 (CPU_FAMILY == 6 && CPU_MODEL == 151) ||	// Core i3/i5/i7, Alder Lake
-			 (CPU_FAMILY == 6 && CPU_MODEL == 183) ||	// Core i3/i5/i7/i9, Raptor Lake
-			 (CPU_FAMILY == 6 && CPU_MODEL == 186))		// Core i3/i5/i7/i9, Raptor Lake
+			(CPU_FAMILY == 6 && CPU_MODEL == 30) ||	// Core i5/i7
+			(CPU_FAMILY == 6 && CPU_MODEL == 46) ||	// Xeon MP (based on Core i7 technology)
+			(CPU_FAMILY == 6 && CPU_MODEL == 47) ||	// Xeon MP (based on Sandy Bridge technology)
+			(CPU_FAMILY == 6 && CPU_MODEL == 69) ||	// Xeon MP (based on Haswell technology)
+			(CPU_FAMILY == 6 && CPU_MODEL == 44) ||	// Core i7 (based on Sandy Bridge technology)
+			(CPU_FAMILY == 6 && CPU_MODEL == 37) ||	// Core i3, mobile i5/i7 (based on Sandy Bridge technology)
+			(CPU_FAMILY == 6 && CPU_MODEL == 42) ||	// Core i7 (based on Sandy Bridge technology)
+			(CPU_FAMILY == 6 && CPU_MODEL == 45) ||	// Core i7 (based on Sandy Bridge-E technology)
+			(CPU_FAMILY == 6 && CPU_MODEL == 58) ||	// Core i7 (based on Ivy Bridge technology)
+			(CPU_FAMILY == 6 && CPU_MODEL == 62) ||	// Core i7 (based on Ivy Bridge-E technology)
+			(CPU_FAMILY == 6 && CPU_MODEL == 60) ||	// Core i7 (based on Haswell technology)
+			(CPU_FAMILY == 6 && CPU_MODEL == 63) ||	// Core i7 (based on Haswell-E technology)
+			(CPU_FAMILY == 6 && CPU_MODEL == 69) ||	// Core i7, mobile (based on Haswell technology)
+			(CPU_FAMILY == 6 && CPU_MODEL == 70) ||	// Core i7 (based on Haswell technology)
+			(CPU_FAMILY == 6 && CPU_MODEL == 61) ||	// Core i7 (based on Broadwell technology)
+			(CPU_FAMILY == 6 && CPU_MODEL == 79) ||	// Core i7 (based on Broadwell-E technology)
+			(CPU_FAMILY == 6 && CPU_MODEL == 71) ||	// Core i7, mobile (based on Broadwell technology)
+			(CPU_FAMILY == 6 && CPU_MODEL == 85) ||	// Core i9 (based on Skylake-X technology)
+			(CPU_FAMILY == 6 && CPU_MODEL == 86) ||	// Core i7, mobile (based on Broadwell technology)
+			(CPU_FAMILY == 6 && CPU_MODEL == 94) ||	// Core i7 (based on Skylake technology)
+			(CPU_FAMILY == 6 && CPU_MODEL == 142) ||	// Core i7, (based on Kaby Lake technology)
+			(CPU_FAMILY == 6 && CPU_MODEL == 158) ||	// Core i7, mobile (based on Coffee Lake technology)
+			(CPU_FAMILY == 6 && CPU_MODEL == 168) ||	// Core i7, (based on Coffee Lake technology)
+			(CPU_FAMILY == 6 && CPU_MODEL == 78) ||	// Core i3/i5/i7, mobile (based on Skylake technology)
+			(CPU_FAMILY == 6 && CPU_MODEL == 102) ||	// Core i3/i5/i7, Cannon Lake
+			(CPU_FAMILY == 6 && CPU_MODEL == 165) ||	// Core i3/i5/i7, Comet Lake
+			(CPU_FAMILY == 6 && CPU_MODEL == 106) ||	// Core i3/i5/i7, Ice Lake
+			(CPU_FAMILY == 6 && CPU_MODEL == 108) ||	// Core i3/i5/i7, Ice Lake
+			(CPU_FAMILY == 6 && CPU_MODEL == 125) ||	// Core i3/i5/i7, Ice Lake
+			(CPU_FAMILY == 6 && CPU_MODEL == 126) ||	// Core i3/i5/i7, Ice Lake
+			(CPU_FAMILY == 6 && CPU_MODEL == 143) ||	// Core i3/i5/i7, Sapphire Rapids
+			(CPU_FAMILY == 6 && CPU_MODEL == 140) ||	// Core i3/i5/i7, Tiger Lake
+			(CPU_FAMILY == 6 && CPU_MODEL == 141) ||	// Core i3/i5/i7, Tiger Lake
+			(CPU_FAMILY == 6 && CPU_MODEL == 167) ||	// Core i3/i5/i7, Rocket Lake
+			(CPU_FAMILY == 6 && CPU_MODEL == 154) ||	// Core i3/i5/i7, Alder Lake
+			(CPU_FAMILY == 6 && CPU_MODEL == 151) ||	// Core i3/i5/i7, Alder Lake
+			(CPU_FAMILY == 6 && CPU_MODEL == 183) ||	// Core i3/i5/i7/i9, Raptor Lake
+			(CPU_FAMILY == 6 && CPU_MODEL == 186))		// Core i3/i5/i7/i9, Raptor Lake
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_CORE_I7;
 		else if ((CPU_FAMILY == 6 && CPU_MODEL == 28) ||
-			 (CPU_FAMILY == 6 && CPU_MODEL == 38) ||
-			 (CPU_FAMILY == 6 && CPU_MODEL == 39) ||
-			 (CPU_FAMILY == 6 && CPU_MODEL == 53) ||
-			 (CPU_FAMILY == 6 && CPU_MODEL == 54) ||
-			 (CPU_FAMILY == 6 && CPU_MODEL == 55) ||
-			 (CPU_FAMILY == 6 && CPU_MODEL == 74) ||	// Silvermont
-			 (CPU_FAMILY == 6 && CPU_MODEL == 77) ||
-			 (CPU_FAMILY == 6 && CPU_MODEL == 90) ||
-			 (CPU_FAMILY == 6 && CPU_MODEL == 93) ||
-			 (CPU_FAMILY == 6 && CPU_MODEL == 76) ||	// Airmont
-			 (CPU_FAMILY == 6 && CPU_MODEL == 92) ||	// Goldmont
-			 (CPU_FAMILY == 6 && CPU_MODEL == 95) ||
-			 (CPU_FAMILY == 6 && CPU_MODEL == 122) ||	// Goldmont+
-			 (CPU_FAMILY == 6 && CPU_MODEL == 134) ||	// Tremont
-			 (CPU_FAMILY == 6 && CPU_MODEL == 138) ||
-			 (CPU_FAMILY == 6 && CPU_MODEL == 150) ||
-			 (CPU_FAMILY == 6 && CPU_MODEL == 156))
+			(CPU_FAMILY == 6 && CPU_MODEL == 38) ||
+			(CPU_FAMILY == 6 && CPU_MODEL == 39) ||
+			(CPU_FAMILY == 6 && CPU_MODEL == 53) ||
+			(CPU_FAMILY == 6 && CPU_MODEL == 54) ||
+			(CPU_FAMILY == 6 && CPU_MODEL == 55) ||
+			(CPU_FAMILY == 6 && CPU_MODEL == 74) ||	// Silvermont
+			(CPU_FAMILY == 6 && CPU_MODEL == 77) ||
+			(CPU_FAMILY == 6 && CPU_MODEL == 90) ||
+			(CPU_FAMILY == 6 && CPU_MODEL == 93) ||
+			(CPU_FAMILY == 6 && CPU_MODEL == 76) ||	// Airmont
+			(CPU_FAMILY == 6 && CPU_MODEL == 92) ||	// Goldmont
+			(CPU_FAMILY == 6 && CPU_MODEL == 95) ||
+			(CPU_FAMILY == 6 && CPU_MODEL == 122) ||	// Goldmont+
+			(CPU_FAMILY == 6 && CPU_MODEL == 134) ||	// Tremont
+			(CPU_FAMILY == 6 && CPU_MODEL == 138) ||
+			(CPU_FAMILY == 6 && CPU_MODEL == 150) ||
+			(CPU_FAMILY == 6 && CPU_MODEL == 156))
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_ATOM;
 		else if ((CPU_FAMILY == 6 && CPU_MODEL == 87) ||	// Knight's Landing
-			 (CPU_FAMILY == 6 && CPU_MODEL == 133))		// Knight's Mill
+			(CPU_FAMILY == 6 && CPU_MODEL == 133))		// Knight's Mill
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_PHI;
 		else
 			CPU_ARCHITECTURE = CPU_ARCHITECTURE_INTEL_OTHER;
@@ -1011,7 +1389,7 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 /* the cache size. */
 
 		if (CPU_L2_CACHE_SIZE == -1 &&
-		    max_extended_cpuid_value >= 0x80000006) {
+			max_extended_cpuid_value >= 0x80000006) {
 			Cpuid (0x80000006, &reg);
 			CPU_L2_CACHE_LINE_SIZE = reg.ECX & 0xFF;
 			if ((reg.ECX >> 12 & 0xF) == 2)
@@ -1029,7 +1407,7 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 /* the cache size. */
 
 		if ((CPU_L1_CACHE_SIZE == -1 || CPU_L2_CACHE_SIZE == -1 || CPU_L3_CACHE_SIZE == -1) &&
-		    max_cpuid_value >= 4) {
+			max_cpuid_value >= 4) {
 			int	i;
 			for (i = 0; i < 10; i++) {
 				int	cache_type, cache_level, cores, threads;
@@ -1123,15 +1501,15 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 			}
 
 			else if (CPU_FAMILY == 6 && CPU_MODEL == 0xB &&
-				 stepping_id == 1 && brand_index == 0x3)
+				stepping_id == 1 && brand_index == 0x3)
 				strcpy (CPU_BRAND, "Intel(R) Celeron(R) processor");
 
 			else if (CPU_FAMILY == 15 && CPU_MODEL == 1 &&
-				 stepping_id == 3 && brand_index == 0xB)
+				stepping_id == 3 && brand_index == 0xB)
 				strcpy (CPU_BRAND, "Intel(R) Xeon(TM) processor MP");
 
 			else if (CPU_FAMILY == 15 && CPU_MODEL == 1 &&
-				 stepping_id == 3 && brand_index == 0xE)
+				stepping_id == 3 && brand_index == 0xE)
 				strcpy (CPU_BRAND, "Intel(R) Xeon(TM) processor");
 
 			else if (brand_index != 0 && brand_index < NUM_BRAND_NAMES)
@@ -1415,8 +1793,21 @@ static	char *	BRAND_NAMES[] = {	/* From Intel Ap-485 */
 	CPU_CORES = num_logical_processors / CPU_HYPERTHREADS;
 	if (CPU_CORES < 1) CPU_CORES = 1;
 }
+#endif
 
-void guessCpuSpeed (void)
+#if defined(__aarch64__) && defined(__linux__)
+/* PORTING: the rdtsc-based speed measurement below cannot work on ARM64 - */
+/* cntvct_el0 is a fixed-frequency system counter, not CPU clocks.  Use the */
+/* frequency reported by the kernel (/proc, /sys) instead, which is what    */
+/* arm64_linux_cpu_info() above already gathered.                           */
+void guessCpuSpeed ()
+{
+	if (CPU_SPEED <= 0.0) arm64_linux_cpu_info ();
+}
+#elif defined(NO_RDTSC)
+void guessCpuSpeed () {CPU_SPEED = 100.0;}
+#else
+void guessCpuSpeed ()
 {
 
 /* If RDTSC is not supported, then measuring the CPU speed is real hard */
@@ -1513,19 +1904,19 @@ void guessCpuSpeed (void)
 /* Compute speed based on number of clocks in the time interval */
 
 			speed1 = (end_hi * 4294967296.0 + end_lo -
-				  start_hi * 4294967296.0 - start_lo) * rdtsc_multiplier *
-				 frequency /
-				 (end_time - start_time) / 1000000.0;
+				start_hi * 4294967296.0 - start_lo) * rdtsc_multiplier *
+				frequency /
+				(end_time - start_time) / 1000000.0;
 
 /* Calculate average of last 3 speeds.  Loop if this average isn't */
 /* very close to all of the last three speed calculations. */
 
 			avg_speed = (speed1 + speed2 + speed3) / 3.0;
 		} while (tries < 3 ||
-		         (tries < 20 &&
-		          (fabs (speed1 - avg_speed) > 1.0 ||
-		           fabs (speed2 - avg_speed) > 1.0 ||
-		           fabs (speed3 - avg_speed) > 1.0)));
+				(tries < 20 &&
+				(fabs (speed1 - avg_speed) > 1.0 ||
+				fabs (speed2 - avg_speed) > 1.0 ||
+				fabs (speed3 - avg_speed) > 1.0)));
 
 /* Final result is average speed of last three calculations */
 
@@ -1585,16 +1976,17 @@ void guessCpuSpeed (void)
 
 			avg_speed = (speed1 + speed2 + speed3) / 3.0;
 		} while (tries < 3 ||
-		         (tries < 10 &&
-		          (fabs (speed1 - avg_speed) > 1.0 ||
-		           fabs (speed2 - avg_speed) > 1.0 ||
-		           fabs (speed3 - avg_speed) > 1.0)));
+				(tries < 10 &&
+				(fabs (speed1 - avg_speed) > 1.0 ||
+				fabs (speed2 - avg_speed) > 1.0 ||
+				fabs (speed3 - avg_speed) > 1.0)));
 
 /* Final result is average speed of last three calculations */
 
 		CPU_SPEED = avg_speed;
 	}
 }
+#endif
 
 /*--------------------------------------------------------------------------
 | And now, the routines that access the high resolution performance counter.
@@ -1612,7 +2004,7 @@ int isHighResTimerAvailable (void)
 /* DosTmrQueryFreq returns the frequency at which the counter increments. */
 /* This frequency is about 1.1MHz, which gives you a timer that's accurate */
 /* to the microsecond. */
-        return (TRUE);
+		return (TRUE);
 #endif
 #if defined (__linux__) || defined (__FreeBSD__) || defined (__APPLE__) || defined (__HAIKU__)
 	struct timeval start, end;
@@ -1645,9 +2037,9 @@ double getHighResTimer (void)
 		(double) /*(unsigned long)*/ large.LowPart);
 #endif
 #ifdef __OS2__
-        unsigned long long qwTmrTime;
-        DosTmrQueryTime((PQWORD)&qwTmrTime);
-        return (qwTmrTime);
+		unsigned long long qwTmrTime;
+		DosTmrQueryTime((PQWORD)&qwTmrTime);
+		return (qwTmrTime);
 #endif
 #if defined (__linux__) || defined (__FreeBSD__) || defined (__APPLE__) || defined (__HAIKU__)
 	struct timeval x;

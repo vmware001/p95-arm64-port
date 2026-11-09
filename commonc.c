@@ -1538,7 +1538,14 @@ void nameAndReadIniFiles (
 		 CPU_ARCHITECTURE == CPU_ARCHITECTURE_AMD_K10 ? "AMD K10" :
 		 CPU_ARCHITECTURE == CPU_ARCHITECTURE_AMD_BULLDOZER ? "AMD Bulldozer" :
 		 CPU_ARCHITECTURE == CPU_ARCHITECTURE_AMD_ZEN ? "AMD Zen" :
+/* PORTING (ARM64 Linux): gwnum's cpuid.c ARM path reports CPU_ARCHITECTURE_OTHER */
+/* (there is no Intel/AMD CPUID on aarch64).  Name the architecture ARM64 so the */
+/* startup/results CPU description is coherent.  x86-64 builds unchanged.        */
+#if defined(__aarch64__)
+		 CPU_ARCHITECTURE == CPU_ARCHITECTURE_OTHER ? "ARM64/AArch64" : "Undefined");
+#else
 		 CPU_ARCHITECTURE == CPU_ARCHITECTURE_OTHER ? "Not Intel and not AMD" : "Undefined");
+#endif
 	strcat (buf, "L2 cache size: ");
 	if (CPU_NUM_L2_CACHES <= 0) strcat (buf, "unknown");
 	if (CPU_NUM_L2_CACHES > 1) sprintf (buf + strlen (buf), "%dx", CPU_NUM_L2_CACHES);

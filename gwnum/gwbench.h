@@ -65,7 +65,7 @@ void gwbench_get_num_benchmarks (double, unsigned long, unsigned long, signed lo
 *                             Internal Routines                               *
 ******************************************************************************/
 
-void gwbench_read_data (int);
+void gwbench_read_data(int cpu_flags);
 int gwbench_implementation_id (gwhandle *, int);
 int internal_implementation_id (int, int, int, int, int, int, int, int, int);
 int internal_implementation_ids_match (int, int, int, int, int, int, int, int);

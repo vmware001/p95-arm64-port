@@ -1,0 +1,180 @@
+# Makefile for mprime on Linux ARM64 (aarch64)
+#
+# This is a port of ../linux64/makefile.  Two build modes are supported:
+#
+# 1) NATIVE build on an aarch64 Linux machine (distro-provided gmp/hwloc/curl):
+#
+#	cd linux-arm64
+#	make -f Makefile.arm64
+#
+#    Requirements (Debian/Ubuntu names): gcc g++ libgmp-dev libhwloc-dev libcurl4-openssl-dev
+#    (curl is used for plain http:// PrimeNet URLs; no TLS backend is required).
+#    Boost headers are required by pair.cpp: install libboost-dev, or point
+#    BOOST_INC at a boost header tree.
+#
+# 2) STATIC CROSS build with zig (produces a self-contained musl binary).
+#    From Windows (PowerShell / cmd) with zig in ../../_tools:
+#
+#	cd linux-arm64
+#	mingw32-make -f Makefile.arm64 CROSS=1 STATIC=1
+#
+#    or with an explicit toolchain (any host, e.g. Linux):
+#
+#	make -f Makefile.arm64 STATIC=1 \
+#	     CC="zig cc -target aarch64-linux-musl" \
+#	     CPP="zig c++ -target aarch64-linux-musl" \
+#	     AR="zig ar" \
+#	     EXE=../../_work/mprime/mprime-aarch64
+#
+#    STATIC=1 links ../../_deps/arm64/lib/{libhwloc.a,libcurl.a,libgmp.a}
+#    and searches ../../_deps/arm64/include for their headers.
+#    CROSS=1 is only a convenience preset for the zig toolchain shipped in
+#    ../../_tools; explicit CC/CPP/AR/EXE overrides always win.
+#
+# Notes:
+# * -DX86_64 is kept from the upstream Linux64 makefile: in the shared sources
+#   it means "64-bit build" (selects the 64-bit trial-factoring path, 64-bit
+#   benchmark/results strings) and is not x86-specific.
+# * -DPORT=8 is the Linux64 port id; it is reported in results.txt as Wh8 and
+#   is kept unchanged so aarch64 results are indistinguishable to PrimeNet
+#   from Linux64 (both are 64-bit Unix builds).
+# * factor64: linux-arm64/factor64_c.c (portable C replacement for the x86
+#   factor64.asm; owned by the factor64-c work item) is used when present.
+#   Until it lands, factor64_stub.c provides weak link-test stubs.  Replace
+#   by dropping factor64_c.c in this directory; no makefile edit is needed.
+
+# ---------------------------------------------------------------------------
+# Portable creation of the empty "trial version" security stubs that the
+# upstream makefiles create with `touch`.  Uses GNU make's $(file ...) so it
+# also works when make runs under cmd.exe (no sh available on Windows hosts).
+# Existing (possibly real) files are left untouched.
+# ---------------------------------------------------------------------------
+$(if $(wildcard ../security.h),,$(file >../security.h,))
+$(if $(wildcard ../security.c),,$(file >../security.c,))
+$(if $(wildcard ../secure5.c),,$(file >../secure5.c,))
+
+# ---------------------------------------------------------------------------
+# Toolchain (command-line overrides always win)
+# ---------------------------------------------------------------------------
+
+CROSS  ?= 0
+STATIC ?= 0
+
+ifeq ($(CROSS),1)
+ZIG    ?= ../../_tools/zig-x86_64-windows-0.15.1/zig.exe
+TARGET ?= aarch64-linux-musl
+DEF_CC  = $(ZIG) cc -target $(TARGET)
+DEF_CPP = $(ZIG) c++ -target $(TARGET)
+DEF_AR  = $(ZIG) ar
+else
+DEF_CC  = gcc
+DEF_CPP = g++
+DEF_AR  = ar
+endif
+
+# make pre-defines CC/CPP/AR (CC=cc, CPP=$(CC) -E, AR=ar) with origin "default";
+# only replace those built-in defaults.  Command-line / environment overrides
+# always win (that is how the Lead can pass CC="zig cc -target ..." etc.).
+ifeq ($(origin CC),default)
+CC = $(DEF_CC)
+endif
+ifeq ($(origin CPP),default)
+CPP = $(DEF_CPP)
+endif
+ifeq ($(origin AR),default)
+AR = $(DEF_AR)
+endif
+
+# ---------------------------------------------------------------------------
+# Dependency locations
+#   STATIC=1 (cross/validation build): use the cross-built aarch64-musl libs in
+#   _deps/arm64 and link them statically.  Otherwise assume a native aarch64
+#   Linux with distro gmp/hwloc/curl development packages (like ../linux64).
+# ---------------------------------------------------------------------------
+
+DEPS ?= ../../_deps/arm64
+
+SYSLIBS = -lm -lpthread
+
+ifeq ($(STATIC),1)
+DEPS_INC   = -I$(DEPS)/include
+DEPS_LIBS  = $(DEPS)/lib/libhwloc.a $(DEPS)/lib/libcurl.a $(DEPS)/lib/libgmp.a
+LDFLAGS   += -static
+# Boost is header-only for pair.cpp (`#include <boost/circular_buffer.hpp>`;
+# upstream passes -I../../boost_1_76_0 on Linux64 for exactly this header).
+# The shipped static build looks for boost installed under
+# $(DEPS)/include/boost first (covered by DEPS_INC); if that is absent it falls
+# back to the header tree fetched for this port under _work/mprime (a plain
+# header copy, no build needed).  Override BOOST_INC to point anywhere else.
+BOOST_INC ?= $(if $(wildcard $(DEPS)/include/boost),,$(if $(wildcard ../../_work/mprime/boost_1_76_0),-I../../_work/mprime/boost_1_76_0,))
+else
+DEPS_INC   =
+DEPS_LIBS  = -lhwloc -lcurl -lgmp
+SYSLIBS   += -ldl -lrt
+# Native build: boost headers are expected in the system include path
+# (e.g. Debian/Ubuntu `libboost-dev`); override BOOST_INC if they are elsewhere.
+BOOST_INC ?=
+endif
+
+# ---------------------------------------------------------------------------
+# Flags
+# ---------------------------------------------------------------------------
+
+COMMON_DEFS = -DX86_64 -DPORT=8
+
+BASEFLAGS    = -I.. -I../gwnum $(DEPS_INC) $(BOOST_INC) -std=gnu99 $(COMMON_DEFS) \
+	       -Wno-unused-result -O2 -ffp-contract=on
+CPPBASEFLAGS = -I.. -I../gwnum $(DEPS_INC) $(BOOST_INC) -std=c++11 $(COMMON_DEFS) \
+	       -Wno-unused-result -O2 -ffp-contract=on
+
+LIBS = ../gwnum/gwnum.a ../gwnum/polymult.a $(DEPS_LIBS) $(SYSLIBS)
+
+# ---------------------------------------------------------------------------
+# Objects
+# ---------------------------------------------------------------------------
+
+FACTOR_SRC = $(if $(wildcard factor64_c.c),factor64_c.c,factor64_stub.c)
+FACTOROBJ  = $(FACTOR_SRC:.c=.o)
+
+LINUXOBJS = prime.o menu.o cJSON.o ecm.o exponentiate.o pair.o pm1prob.o
+
+ifeq ($(STATIC),1)
+EXE ?= ../../_work/mprime/mprime-aarch64
+else
+EXE ?= mprime
+endif
+
+# ---------------------------------------------------------------------------
+# Rules
+# ---------------------------------------------------------------------------
+
+all: $(EXE)
+
+$(EXE): $(LINUXOBJS) $(FACTOROBJ)
+	$(CPP) $(LDFLAGS) -o $(EXE) $(LINUXOBJS) $(FACTOROBJ) $(LIBS)
+
+%.o: %.c
+	$(CC) $(BASEFLAGS) -c $< -o $@
+
+%.o: %.cpp
+	$(CPP) $(CPPBASEFLAGS) -c $< -o $@
+
+cJSON.o:
+	$(CC) $(BASEFLAGS) -c ../cJSON.c -o $@
+
+ecm.o:
+	$(CPP) $(CPPBASEFLAGS) -c ../ecm.cpp -o $@
+
+exponentiate.o:
+	$(CC) $(BASEFLAGS) -c ../exponentiate.c -o $@
+
+pair.o:
+	$(CPP) $(CPPBASEFLAGS) -c ../pair.cpp -o $@
+
+pm1prob.o:
+	$(CC) $(BASEFLAGS) -c ../pm1prob.c -o $@
+
+clean:
+	-$(RM) $(LINUXOBJS) $(FACTOROBJ) $(EXE)
+
+.PHONY: all clean

@@ -15,7 +15,8 @@
 
 /* Include files */
 
-#ifdef __linux__		// Required for CentOS 5 compilation
+#if defined(__linux__) && defined(USE_SQLITE3)
+// Required for CentOS 5 compilation
 #define _GNU_SOURCE
 #define __USE_UNIX98
 #include <sys/mman.h>
@@ -26,6 +27,8 @@
 #include "gwbench.h"
 #include "gwini.h"
 #include "gwthread.h"
+
+#ifdef USE_SQLITE3
 
 /* Include the open source SQL database */
 
@@ -87,6 +90,7 @@
 //#define SQLITE_OMIT_XFER_OPT 1
 //#define SQLITE_UNTESTABLE 1
 ////#define SQLITE_ZERO_MALLOC 1
+
 #include "sqlite3.c"
 
 /* Defines */
@@ -98,6 +102,7 @@ gwmutex	SQL_MUTEX;				/* Lock for accessing SQL database */
 sqlite3 *BENCH_DB = NULL;			/* SQL database storing the bench data */
 int	get_max_sql_stmt_prepared = FALSE;	/* SQL stmt used in get_max_thoughput */
 sqlite3_stmt *get_max_sql_stmt;
+#endif
 
 /* Allow overriding which benchmark data we use to select fastest FFT implementations */
 /* These values are read from gwnum.txt.  If set, then gwnum will use benchmarking data */
@@ -110,6 +115,8 @@ int	BENCH_NUM_WORKERS = 0;
 /****************************************************************************/
 /*          Routines to read and write bench data in INI file               */
 /****************************************************************************/
+
+#ifdef USE_SQLITE3
 
 void gwbench_read_data (int cpu_flags)
 {
@@ -145,7 +152,7 @@ void gwbench_read_data (int cpu_flags)
 
 	errcode = sqlite3_exec (BENCH_DB,
 				"CREATE TABLE bench_data (fftlen INT, num_cores INT, num_workers INT, num_hyperthreads INT, \
-							  impl INT, bench_date DATE, bench_length INT, throughput REAL)",
+							impl INT, bench_date DATE, bench_length INT, throughput REAL)",
 				NULL, NULL, NULL);
 	if (errcode != SQLITE_OK) goto db_error;
 
@@ -238,7 +245,7 @@ empty_the_db:
 					SELECT * FROM bench_data x WHERE rowid IN ( \
 						SELECT rowid FROM bench_data y \
 						WHERE x.fftlen = y.fftlen AND x.impl = y.impl AND x.num_cores = y.num_cores AND \
-						      x.num_workers = y.num_workers AND x.num_hyperthreads = y.num_hyperthreads \
+							x.num_workers = y.num_workers AND x.num_hyperthreads = y.num_hyperthreads \
 						ORDER BY throughput DESC LIMIT 3)", NULL, NULL, NULL);
 	if (errcode != SQLITE_OK) goto db_error;
 
@@ -319,8 +326,8 @@ void gwbench_write_data (void)
 		throughput = sqlite3_column_double (sql_stmt, 7);
 
 		snprintf (bench_data, sizeof (bench_data), "%d%s,%d,%d,%d,%08X,%s,%d,%.2f",
-			 (fftlen & 0x3FF) ? fftlen : fftlen >> 10, (fftlen & 0x3FF) ? "" : "K",
-			 num_cores, num_workers, num_hyperthreads, impl_id, bench_date, bench_length, throughput);
+			(fftlen & 0x3FF) ? fftlen : fftlen >> 10, (fftlen & 0x3FF) ? "" : "K",
+			num_cores, num_workers, num_hyperthreads, impl_id, bench_date, bench_length, throughput);
 
 		IniWriteNthString (GWNUMINI_FILE, "BenchData", i, bench_data);
 	}
@@ -422,7 +429,7 @@ int gwbench_implementation_id (
 	else if (gwdata->cpu_flags & CPU_AVX) clm = gwdata->PASS1_CACHE_LINES / 4;
 	else clm = gwdata->PASS1_CACHE_LINES / 2;
 	return (internal_implementation_id (gwdata->FFTLEN, gwdata->FFT_TYPE, gwdata->NEGACYCLIC_FFT, gwdata->NO_PREFETCH_FFT,
-					    gwdata->IN_PLACE_FFT, error_checking, gwdata->PASS2_SIZE, gwdata->ARCH, clm));
+						gwdata->IN_PLACE_FFT, error_checking, gwdata->PASS2_SIZE, gwdata->ARCH, clm));
 }
 
 int internal_implementation_id (
@@ -488,6 +495,8 @@ int internal_implementation_id (
 		(clm << 0));					// Compressed cache-line-multiplier
 }
 
+#endif // USE_SQLITE3
+
 /* Returns TRUE if the implementation id returned by gwbench_get_max_throughput matches the data parsed from a jmptable entry */
 
 int internal_implementation_ids_match (
@@ -528,8 +537,10 @@ int internal_implementation_ids_match (
 	in_place = !!in_place;
 	// Return true if this is a match
 	return (impl_id == (fft_type << 24) + (no_prefetch << 21) + (in_place << 20) +
-			   (architecture << 12) + (pass2_multiplier << 8) + (pass2_pow2 << 4) + (clm << 0));
+			(architecture << 12) + (pass2_multiplier << 8) + (pass2_pow2 << 4) + (clm << 0));
 }
+
+#ifdef USE_SQLITE3
 
 /* This routine returns the implementation ID and throughput for the best implementation of this FFT length. */
 /* If throughput for this FFT length is not in the benchmark database, then -1.0 is returned */
@@ -610,10 +621,10 @@ void gwbench_get_max_throughput (
 
 	if (!get_max_sql_stmt_prepared) {
 		errcode = sqlite3_prepare_v2 (BENCH_DB, "SELECT impl, avg_throughput FROM avgbest3 \
-							 WHERE fftlen = ?1 AND num_cores = ?2 AND num_workers = ?3 AND \
+							WHERE fftlen = ?1 AND num_cores = ?2 AND num_workers = ?3 AND \
 								num_hyperthreads = ?4 AND (impl & 0x8010008) = ?5 AND \
 								(impl & 0xF000) BETWEEN ?6 AND ?7 \
-							 ORDER BY avg_throughput DESC LIMIT 1", -1, &get_max_sql_stmt, NULL);
+							ORDER BY avg_throughput DESC LIMIT 1", -1, &get_max_sql_stmt, NULL);
 		if (errcode != SQLITE_OK) goto stmt_error;
 		get_max_sql_stmt_prepared = TRUE;
 	}
@@ -729,8 +740,8 @@ void gwbench_get_num_benchmarks (
 /* interrupting of benchmarks before all implmentations are benchmarked could throw this average off. */
 
 	errcode = sqlite3_prepare_v2 (BENCH_DB, "SELECT COUNT(*), COUNT (DISTINCT IMPL) FROM bench_data \
-						 WHERE fftlen = ?1 AND num_cores = ?2 AND num_workers = ?3 AND \
-						 num_hyperthreads = ?4 AND (impl & 0x8010008) = ?5", -1, &sql_stmt, NULL);
+						WHERE fftlen = ?1 AND num_cores = ?2 AND num_workers = ?3 AND \
+						num_hyperthreads = ?4 AND (impl & 0x8010008) = ?5", -1, &sql_stmt, NULL);
 	if (errcode != SQLITE_OK) goto stmt_error;
 
 /* Get the throughput data (if any) */
@@ -768,3 +779,31 @@ stmt_error:
 	sqlite3_finalize (sql_stmt);
 	gwmutex_unlock (&SQL_MUTEX);
 }
+
+#endif //USE_SQLITE3
+
+#if !defined(USE_SQLITE3)
+
+#if defined(__clang__) || defined(__GNUC__)
+#define UNUSED __attribute__((unused))
+#else
+#define UNUSED
+#endif
+
+void gwbench_read_data (UNUSED int cpu_flags) {};
+void gwbench_get_max_throughput (
+	UNUSED int fftlen,
+	UNUSED int arch,
+	UNUSED int num_cores,
+	UNUSED int num_workers,
+	UNUSED int num_hyperthreads,
+	UNUSED int negacyclic,
+	UNUSED int error_check,
+	int	*impl,
+	double	*throughput)
+{
+	*impl = -1;
+	*throughput = -1.0;
+}
+
+#endif

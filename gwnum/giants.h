@@ -74,7 +74,8 @@ typedef giantstruct *giant;
 #define stackgiant(name,count) uint32_t name##_data[count]; giantstruct name##_struct = {count, 0, (uint32_t *) &name##_data}; const giant name = &name##_struct
 
 /* Creates a new giant allocating an array of uint32_t */
-giant 	allocgiant(int count);
+giant allocgiant(int count);
+void freegiant(giant g);
 
 /* Returns the bit-length n; e.g. n=7 returns 3. */
 int 	bitlen(giant n);

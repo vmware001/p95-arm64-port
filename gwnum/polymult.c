@@ -11,12 +11,51 @@
 #include <stdlib.h>
 #include <math.h>
 #include <memory.h>
+#include <string.h>	/* PORTING: needed for memmove; <memory.h> is not portable outside glibc/musl */
 #include "cpuid.h"
 #include "gwnum.h"
 #include "gwutil.h"
 #include "polymult.h"
 #if defined (SSE2) || defined (AVX) || defined (FMA) || defined (AVX512)
 #include <immintrin.h>
+#endif
+
+/*----------------------------------------------------------------------+
+| PORTING (ARM64): architecture-only "x86-64" macro.                    |
+|                                                                       |
+| In this file the tests `#ifdef X86_64` / `#ifndef X86_64` mean "is    |
+| this an x86-64 *architecture* build": they select the x86 SIMD       |
+| variants and the 32-bit/x87 fallbacks.  gwnum_c1's gwcommon.h also     |
+| defines the macro X86_64 for ARM64, where it only means "64-bit       |
+| build" (struct layout), so we must not use it for architecture tests  |
+| here.                                                                 |
+|                                                                       |
+| This Makefile builds *only* the portable scalar ("dbl") polymult      |
+| implementation (the SSE2/AVX/FMA/AVX-512 variants are x86 intrinsics  |
+| which are not ported to ARM64 yet).  POLYMULT_FORCE_SCALAR is defined |
+| by Makefile.arm64 so that even an x86 build of this makefile produces |
+| the same scalar-only, self-consistent library (used for validation).  |
+|                                                                       |
+| Consequences when POLYMULT_X86_64 is not defined / scalar build:      |
+|  * the dbl read_line/write_line/fft_line implementations and the      |
+|    "generalized routines" are compiled (upstream's 32-bit path),      |
+|  * the dispatch routines call only polymult_line_dbl /                 |
+|    polymult_line_preprocess_dbl,                                     |
+|  * polymult's private cpu_flags copy is masked so that its layout     |
+|    math (vector_size_in_doubles() etc.) uses the scalar convention.   |
+| NOTE: this keeps the library link-complete and self-consistent; the   |
+| scalar reader/writer handling of gwnum's 128-bit data layout is       |
+| upstream's 32-bit/x87 code path and is NOT YET validated on ARM64 -   |
+| P-1/ECM should be treated as untested until an SSE2/NEON polymult     |
+| variant is added (see T2 hand-off notes).                             |
++----------------------------------------------------------------------*/
+#if (defined(__x86_64__) || defined(_M_X64)) && !defined(POLYMULT_FORCE_SCALAR)
+#define POLYMULT_X86_64		1
+#endif
+#ifdef POLYMULT_X86_64
+#define POLYMULT_ISA_FLAGS(f)	(f)
+#else
+#define POLYMULT_ISA_FLAGS(f)	((f) & ~(CPU_SSE2 | CPU_AVX | CPU_FMA3 | CPU_AVX512F))
 #endif
 
 // TO DO OR CONSIDER:
@@ -512,7 +551,10 @@ void polymult_init (
 {
 	memset (pmdata, 0, sizeof (pmhandle));
 	pmdata->gwdata = gwdata;
-	pmdata->cpu_flags = gwdata->cpu_flags;
+	/* PORTING: in a scalar-only build clear the vector-ISA bits so that all
+	   of polymult's layout math (vector_size_in_doubles etc.) agrees with the
+	   scalar implementation that dispatch will call. */
+	pmdata->cpu_flags = POLYMULT_ISA_FLAGS (gwdata->cpu_flags);
 
 	// Initialize default number of threads
 	pmdata->max_num_threads = gwget_num_threads (gwdata);
@@ -557,6 +599,7 @@ void polymult_set_cpu_flags (
 	pmhandle *pmdata,		// Handle for polymult library
 	int	cpu_flags)		// Alternate CPU flags to use for polymult
 {
+#ifdef POLYMULT_X86_64
 	// At present the only alternate CPU flags supported is AVX-512 polymult on AVX or FMA3 gwnums.
 	if ((cpu_flags & CPU_AVX512F) && !(pmdata->cpu_flags & CPU_AVX512F) && !(pmdata->gwdata->cpu_flags & CPU_AVX512F) && (pmdata->gwdata->cpu_flags & CPU_AVX)) {
 		// Set new cpu flags
@@ -564,6 +607,12 @@ void polymult_set_cpu_flags (
 		// Re-calculate pmdata members dependent on the cpu flags
 		pmdata->num_lines = divide_rounding_up (pmdata->num_lines, 2);		// An AVX-512 vector operates on twice as many elements
 	}
+#else
+	/* PORTING: only the portable scalar implementation is built (ARM64), so
+	   there is no alternate instruction set to switch to; keep the masked
+	   scalar flags set up by polymult_init(). */
+	(void) cpu_flags;
+#endif
 }
 
 // Set default polymult tuning using CPU cache sizes.  If this routine is not called, default tuning parameters are set using L2 cache of 256KB, and
@@ -2308,7 +2357,7 @@ void write_line_slice_sse2 (int helper_num, pmhandle *pmdata, void *rwlsd)
 	}
 }
 
-#elif !defined (X86_64)				// x87 FFTs only supported in 32-bit mode
+#elif !defined (POLYMULT_X86_64)				// x87 FFTs only supported in 32-bit mode
 
 // When multiplying small polys (a few gwnums), the overhead in prepping read_line and write_line is measurable.  This routine aims to reduce that overhead.
 void prep_line (gwhandle *gwdata, int line, read_write_line_slice_data *rwlsd)
@@ -2616,7 +2665,7 @@ void write_line_slice_dbl (int helper_num, pmhandle *pmdata, void *rwlsd)
 |	     Generalized routines (vector data type independent)
 +-------------------------------------------------------------------------*/
 
-#if defined (AVX512) || defined (FMA) || defined (AVX) || defined (SSE2) || !defined (X86_64)
+#if defined (AVX512) || defined (FMA) || defined (AVX) || defined (SSE2) || !defined (POLYMULT_X86_64)
 
 void brute_line (
 	CVDT	*invec1,		// First input poly (may be a monic with ones stripped)
@@ -4461,20 +4510,19 @@ void polymult_dispatch (
 
 	// Polymult_line optimized for several instruction sets
 	case HELPER_POLYMULT_LINE:
-#ifdef X86_64
+#ifdef POLYMULT_X86_64
 		// Polymult_line optimized routines for AVX512 instructions
 		if (pmdata->cpu_flags & CPU_AVX512F) polymult_line_avx512 (pmdata); else
-#endif
 		// Polymult optimized routines for FMA3 instructions
 		if (pmdata->cpu_flags & CPU_FMA3) polymult_line_fma (pmdata);
 		// Polymult optimized routines for AVX instructions
 		else if (pmdata->cpu_flags & CPU_AVX) polymult_line_avx (pmdata);
 		// Polymult optimized routines for SSE2 instructions
-		else if (pmdata->cpu_flags & CPU_SSE2) polymult_line_sse2 (pmdata);
-		// Polymult default routines using no vector instructions
-#ifndef X86_64
-		else polymult_line_dbl (pmdata);
+		else if (pmdata->cpu_flags & CPU_SSE2) polymult_line_sse2 (pmdata); else
 #endif
+		// Polymult default routines using no vector instructions
+		// (this is the only implementation built on ARM64 / scalar build)
+		polymult_line_dbl (pmdata);
 		break;
 
 	// Post-unFFT polymult outputs
@@ -4484,15 +4532,14 @@ void polymult_dispatch (
 
 	// Polymult_preprocess_line optimized for several instruction sets
 	case HELPER_PREPROCESS_LINE:
-#ifdef X86_64
+#ifdef POLYMULT_X86_64
 		if (pmdata->cpu_flags & CPU_AVX512F) polymult_line_preprocess_avx512 (pmdata); else
-#endif
 		if (pmdata->cpu_flags & CPU_FMA3) polymult_line_preprocess_fma (pmdata);
 		else if (pmdata->cpu_flags & CPU_AVX) polymult_line_preprocess_avx (pmdata);
-		else if (pmdata->cpu_flags & CPU_SSE2) polymult_line_preprocess_sse2 (pmdata);
-#ifndef X86_64
-		else polymult_line_preprocess_dbl (pmdata);
+		else if (pmdata->cpu_flags & CPU_SSE2) polymult_line_preprocess_sse2 (pmdata); else
 #endif
+		// (this is the only implementation built on ARM64 / scalar build)
+		polymult_line_preprocess_dbl (pmdata);
 		break;
 	}
 

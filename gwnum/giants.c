@@ -22,6 +22,7 @@
 #include "giants.h"
 #include "gwutil.h"
 #include "fftsg.c"
+//#include <sys/mman.h>
 
 /**************************************************************
  *
@@ -148,6 +149,15 @@ giant allocgiant (		/* Create a new giant */
 	thegiant->n = (uint32_t *) ((char *) thegiant + sizeof (giantstruct));
 	setmaxsize (thegiant, count);
 	return (thegiant);
+}
+void freegiant (giant g)
+{
+	//if(g->n)
+	//{
+	//	free(g->n);
+	//	g->n = 0;
+	//}
+	free(g);
 }
 
 void itog (		/* The giant g becomes set to the integer value i. */
@@ -944,8 +954,8 @@ void divgi (		/* n becomes n/d. n is arbitrary, but the
 	}
 	else {
 		if (gdata->cur_recip == NULL || gcompg (d, gdata->cur_den)) {
-			free (gdata->cur_recip);
-			free (gdata->cur_den);
+			/*munmap(gdata->cur_recip, 32*4096);*/ free (gdata->cur_recip);
+			/*munmap(gdata->cur_den, 32*4096);*/ free (gdata->cur_den);
 			gdata->cur_recip = allocgiant (d->sign + 1);
 			gdata->cur_den = allocgiant (d->sign);
 			gtog (d, gdata->cur_den);
@@ -1849,9 +1859,9 @@ void term_ghandle (
 	ghandle *gdata)
 {
 	aligned_free (gdata->ooura_sincos);
-	free (gdata->ooura_ip);
-	free (gdata->cur_recip);
-	free (gdata->cur_den);
+	/*munmap(gdata->ooura_ip, 32*4096);*/ free (gdata->ooura_ip);
+	/*munmap(gdata->cur_recip, 32*4096);*/ free (gdata->cur_recip);
+	/*munmap(gdata->cur_den, 32*4096);*/ free (gdata->cur_den);
 }
 
 giant popg (
@@ -1868,7 +1878,7 @@ giant popg (
 
 	memsize = sizeof (gstacknode) + sizeof (giantstruct) + size * sizeof (uint32_t);
 	if (memsize > gdata->blksize) {
-		s = (gstacknode *) malloc (memsize);
+		s = (gstacknode *) /*mmap(NULL, 4096*32, PROT_READ | PROT_WRITE, MAP_ANONYMOUS + MAP_PRIVATE, -1, 0);*/ malloc (memsize);
 		memmove (s, &gdata->stack, sizeof (gstacknode));
 	} else if (gdata->stack.memblk == NULL ||
 		   memsize > gdata->blksize - gdata->stack.offset) {
@@ -1902,7 +1912,7 @@ void pushg (
 		if (gdata->stack.memblk == s->memblk &&
 		    gdata->stack.offset == s->offset) {
 			memmove (&gdata->stack, s, sizeof (gstacknode));
-			free (s);
+			/*munmap(s, 32*4096);*/ free (s);
 		} 
 		else if (gdata->stack.memblk != s->memblk) {
 			memmove (&gdata->stack, s, sizeof (gstacknode));
@@ -2052,7 +2062,7 @@ int init_sincos (
 
 	aligned_free (gdata->ooura_sincos);
 	gdata->ooura_sincos = NULL;
-	free (gdata->ooura_ip);
+	/*munmap(gdata->ooura_ip, 32*4096);*/ free (gdata->ooura_ip);
 	gdata->ooura_ip = NULL;
 	gdata->ooura_fft_size = 0;
 
@@ -2070,7 +2080,7 @@ int init_sincos (
 
 	gdata->ooura_sincos = (double *) aligned_malloc ((n/2) * sizeof (double), sizeof (double));
 	if (gdata->ooura_sincos == NULL) return (GIANT_OUT_OF_MEMORY);
-	gdata->ooura_ip = (int *) malloc (((int) sqrt((double)(n/2)) + 2) * sizeof (int));
+	gdata->ooura_ip = (int *) /*mmap(NULL, 4096*32, PROT_READ | PROT_WRITE, MAP_ANONYMOUS + MAP_PRIVATE, -1, 0);*/ malloc (((int) sqrt((double)(n/2)) + 2) * sizeof (int));
 	if (gdata->ooura_ip == NULL) {
 		aligned_free (gdata->ooura_sincos);
 		gdata->ooura_sincos = NULL;
