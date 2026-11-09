@@ -810,11 +810,12 @@ int format_args (char* args, short operation, void* pkt)
 	}
 #else
 	/* PrimeNet v5 API requires the ss (security salt) and sh (security hash)
-	   parameters on every transaction (see v5webAPI 5.1.2.1 / 5.3 / 5.6 etc).
-	   Trusted builds append signed values via secure5.c above; open-source
-	   ("untrusted") builds must send them as empty values instead.  They are
-	   specified to be the last parameters of the URL. */
-	strcat (args, "&ss=&sh=");
+	   parameters on every transaction.  Trusted builds append signed values via
+	   secure5.c above; open-source ("untrusted") builds must send null values.
+	   Empirically the current server wants ss as an integer and sh as a 32-char
+	   string, so send ss=0 and sh=32 zeros (empty strings are rejected with
+	   "parameter ss required Int").  They must be the last parameters. */
+	strcat (args, "&ss=0&sh=00000000000000000000000000000000");
 #endif
 	return (0);
 }
