@@ -297,3 +297,16 @@ The converted kernels are already 128-bit vector C that compiles to NEON, and th
 in-order Cortex-A53 is instruction/latency limited rather than optimization limited.
 Further speedups would need hand-written NEON kernels (est. 1.5–2x for a 2-way TF
 Montgomery; ~1.2–1.5x for gwnum FFT), still 1–2 orders of magnitude behind a GPU.
+
+## ECM stage 2 fixed (2026-11-09)
+
+Root cause of the ECM stage-2 SIGSEGV (addr=0x0 inside `mQ_preinit_array`'s std::map
+insert): `Dmultiple_data` in `ecm.cpp` did not initialize its `gwdata` and
+`do_not_free_val` members, so map-entry copies carried garbage; the optimizer's
+bool assumptions turned that into a null-pointer dereference (a -O0/UBSan build
+reported "load of value 200, which is not valid for type 'bool'" at the same place).
+
+Fix: initialize `gwdata = NULL; do_not_free_val = TRUE;` in the constructor.
+Validated on RK3528: `M1277` ECM curve completes stage 2 (99691 transforms,
+0.305 s); ECM on `M67` finds the known factor 193707721 in stage 2; P-1 `M1277`
+still completes (regression pass).
