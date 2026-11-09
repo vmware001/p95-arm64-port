@@ -1,4 +1,4 @@
-/**************************************************************
+﻿/**************************************************************
  *
  *	ecm.cpp
  *
@@ -217,7 +217,7 @@ using relp_set_data_map = std::map<int16_t,relp_set_data,relpclasscomp>;
 class Dmultiple_data {
 public:
 	// Constructor
-	Dmultiple_data (int16_t rlub, uint64_t dlub) {val.x = NULL; val.z = NULL; relp_last_used_by = rlub; Dmult_last_used_by = dlub; base = addin = diff = 0; }
+	Dmultiple_data (int16_t rlub, uint64_t dlub) {val.x = NULL; val.z = NULL; gwdata = NULL; do_not_free_val = TRUE; relp_last_used_by = rlub; Dmult_last_used_by = dlub; base = addin = diff = 0; }
 	// Destructor
 	~Dmultiple_data () { if (!do_not_free_val) { gwfree (gwdata, val.x); gwfree (gwdata, val.z); } }
 	// Set val buffers

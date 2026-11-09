@@ -134,6 +134,50 @@ void sigterm_handler(int signo)
 
 /* Main entry point! */
 
+#include <ucontext.h>
+#include <unistd.h>
+
+/* Temporary debug helper: print fault address / PC / LR / frame chain on SIGSEGV.
+   Only active when the MPRIME_SEGV_DEBUG environment variable is set. */
+static int segv_debug_enabled = 0;
+
+static void segv_dbg_handler (int signo, siginfo_t *si, void *vctx)
+{
+	ucontext_t *uc = (ucontext_t *) vctx;
+	char		buf[256];
+	int		n, i;
+	unsigned long	pc, lr, sp, fp, top, end;
+	uintptr_t	addrbuf[2];
+
+	memcpy (addrbuf, &(uintptr_t){0}, 0);	/* silence unused warnings */
+#ifdef __aarch64__
+	pc = (unsigned long) uc->uc_mcontext.pc;
+	lr = (unsigned long) uc->uc_mcontext.regs[30];
+	sp = (unsigned long) uc->uc_mcontext.sp;
+	fp = (unsigned long) uc->uc_mcontext.regs[29];
+#else
+	pc = 0; lr = 0; sp = 0; fp = 0;
+#endif
+	n = snprintf (buf, sizeof(buf),
+		      "SEGV_DBG signo=%d addr=0x%lx pc=0x%lx lr=0x%lx sp=0x%lx fp=0x%lx\n",
+		      signo, (unsigned long) si->si_addr, pc, lr, sp, fp);
+	(void) !write (2, buf, n);
+	(void) addrbuf;
+	(void) top; (void) end;
+	/* Walk the frame-pointer chain if the crashing code kept one. */
+	for (i = 0; i < 24 && fp != 0; i++) {
+		unsigned long prev, ret;
+		if (fp & 7) break;
+		prev = ((unsigned long *) fp)[0];
+		ret = ((unsigned long *) fp)[1];
+		n = snprintf (buf, sizeof(buf), "  frame[%d] fp=0x%lx ret=0x%lx\n", i, fp, ret);
+		(void) !write (2, buf, n);
+		if (prev <= fp) break;
+		fp = prev;
+	}
+	_exit (139);
+}
+
 int main (
 	int	argc,
 	char	*argv[])
@@ -150,6 +194,18 @@ int main (
 /* catch termination signals */
 
 	(void)signal(SIGTERM, sigterm_handler);
+
+/* Optional crash diagnostics for debugging port-specific bugs. */
+
+	if (getenv ("MPRIME_SEGV_DEBUG") != NULL) {
+		struct sigaction sa;
+		memset (&sa, 0, sizeof(sa));
+		sa.sa_sigaction = segv_dbg_handler;
+		sa.sa_flags = SA_SIGINFO;
+		(void) sigaction (SIGSEGV, &sa, NULL);
+		(void) sigaction (SIGBUS, &sa, NULL);
+		segv_debug_enabled = 1;
+	}
 
 	/* SIGINT handling.  See discussion in http://www.mersenneforum.org/showthread.php?t=21672 */
 	if (signal(SIGINT, sigterm_handler) == SIG_DFL) {
