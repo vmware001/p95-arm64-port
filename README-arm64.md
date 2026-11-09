@@ -163,6 +163,26 @@ assignments are 2^70…2^77 at exponents 1.0–1.4e8, i.e. 10^5–10^6 times mor
 (mfaktc/mfakto).  Use LL/PRP/P-1 on ARM64, or skip TF work units.  Full log:
 `dist-arm64/tests/realhw-rk3528-tf-timing.log`.
 
+### Work-type suitability on real hardware (RK3528, measured)
+
+| Work type | Test | Result on device |
+|---|---|---|
+| **PRP** (recommended) | `PRP=1,2,216091,-1,0,0` | **53 s**, 0.237 ms/iter (12K FFT), Gerbicz checks 0 errors, `M216091 is a probable prime!`, proof power 5 generated in ~0.5 s (2073 squarings) → best choice |
+| LL | `Test=216091,0,1` | **53 s**, 0.237 ms/iter, `M216091 is prime!` — correct, but legacy vs PRP |
+| ECM | `ECM=1,2,1277,-1,50000,1000000,1` | stage 1 OK (1.36 s, 1.2 M transforms) then **stage 2 dies silently** (no result) |
+| P-1 | `Pminus1=1,2,67,-1,50000,1000000` | stage 1 OK (0.22 s) then fails: `In write_giant, unexpected len == 0 failure` |
+| TF | `Factor=...` | minutes → hours → days per bit level at realistic sizes (see TF table above) |
+
+**ECM and P-1 are currently NOT usable on this port**: their stage-2/state paths fail (the scalar
+`polymult` implementation documented above as unvalidated is the prime suspect; a state-save
+`write_giant len==0` bug also appears for very small moduli).  LL and PRP are the validated paths,
+and **PRP is the recommended work type** (same speed as LL, Gerbicz error checking, cheap proof
+generation; validated correct on the device).
+
+Practical scale on the RK3528 (from `mprime -b`): 3072K FFT = 196 ms/iter with 4 cores.  A current
+GIMPS wavefront PRP (~136M exponent, ~7.5M FFT) would take years on this box; small exponents
+(e.g. 216091 took 53 s, ~1M exponent ≈ 20–30 min) are the realistic range.
+
 ### Emulated validation (function-correctness, no real hardware needed)
 
 Harness / environment: QEMU 11.1 `qemu-system-aarch64`, `-M virt -cpu cortex-a72 -smp 4`,
