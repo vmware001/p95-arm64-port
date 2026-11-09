@@ -217,7 +217,7 @@ using relp_set_data_map = std::map<int16_t,relp_set_data,relpclasscomp>;
 class Dmultiple_data {
 public:
 	// Constructor
-	Dmultiple_data (int16_t rlub, uint64_t dlub) {val.x = NULL; val.z = NULL; relp_last_used_by = rlub; Dmult_last_used_by = dlub; base = addin = diff = 0; }
+	Dmultiple_data (int16_t rlub, uint64_t dlub) {val.x = NULL; val.z = NULL; gwdata = NULL; do_not_free_val = TRUE; relp_last_used_by = rlub; Dmult_last_used_by = dlub; base = addin = diff = 0; }
 	// Destructor
 	~Dmultiple_data () { if (!do_not_free_val) { gwfree (gwdata, val.x); gwfree (gwdata, val.z); } }
 	// Set val buffers
@@ -1723,16 +1723,16 @@ void ws_add (
 // From https://www.nayuki.io/page/elliptic-curve-point-addition-in-projective-coordinates
 // Let T0 = Y0Z1
 // Let T1 = Y1Z0
-// Let T = T0−T1
+// Let T = T0?T1
 // Let U0 = X0Z1
 // Let U1 = X1Z0
-// Let U = U0−U1
+// Let U = U0?U1
 // Let U2 = U^2
 // Let V = Z0Z1
-// Let W = T^2V − U2(U0+U1)
+// Let W = T^2V ? U2(U0+U1)
 // Let U3 = UU2
 // X2 = UW
-// Y2 = T(U0U2−W)−T0U3
+// Y2 = T(U0U2?W)?T0U3
 // Z2 = U3V
 
 	gwnum	T0, T1, T, U0, U1, U, U2, V, W, t0, U3;
@@ -1802,9 +1802,9 @@ void ws_dbl (
 // Let T = 3X^2 + aZ^2
 // Let U = 2YZ
 // Let V = 2UXY
-// Let W = T^2 − 2V
+// Let W = T^2 ? 2V
 // X2 = UW
-// Y2 = T(V−W)−2(UY)^2
+// Y2 = T(V?W)?2(UY)^2
 // Z2 = U^3
 
 	gwnum	T, U, V, W, t0;
@@ -4309,7 +4309,7 @@ int choose_atkin_morain (
 	normalize (ecmdata, ecmdata->ed_d, tmp);			// d = (2(2b - 1)^2 - 1)/(2b - 1)^4
 
 	// Now compute starting point from the literature.
-	// x = (2b − 1)(4b − 3)/(6b − 5)
+	// x = (2b ? 1)(4b ? 3)/(6b ? 5)
 	// y = (2b - 1)(t^2 + 50t - 2s^3 + 27s^2 - 104)/((t + 3s - 2)(t + s + 16))
 	if (e != NULL) {
 		ed_alloc (ecmdata, e);
@@ -4424,12 +4424,12 @@ int choose_atkin_morain (
 	gwmul3 (&ecmdata->gwdata, sN, inv_sD, s = sN, 0);						// s = sN / sD
 	gwmul3 (&ecmdata->gwdata, tN, inv_sD, t = tN, 0);						// t = tN / sD, tD equals sD
 
-	// Now compute starting point from the literature.  Using normalized inputs, x = (2b − 1)(4b − 3)/(6b − 5) = b2m1 * (2*b2m1 − 1) / (3*b2m1 − 1),
+	// Now compute starting point from the literature.  Using normalized inputs, x = (2b ? 1)(4b ? 3)/(6b ? 5) = b2m1 * (2*b2m1 ? 1) / (3*b2m1 ? 1),
 	// and y = (2b - 1)(t^2 + 50t - 2s^3 + 27s^2 - 104)/((t + 3s - 2)(t + s + 16))
 	// With normalized s and t, and unnormalized b2m1 inputs:
-	//     b2m1N   (2*b2m1N − b2m1D)          b2m1D          b2m1N    (2*b2m1N − b2m1D)    xN
+	//     b2m1N   (2*b2m1N ? b2m1D)          b2m1D          b2m1N    (2*b2m1N ? b2m1D)    xN
 	// x = ----- * ----------------- * ------------------- = ----- * ------------------- = --
-	//     b2m1D         b2m1D         (3*b2m1N − 2*b2m1D)   b2m1D   (3*b2m1N − 2*b2m1D)   xD
+	//     b2m1D         b2m1D         (3*b2m1N ? 2*b2m1D)   b2m1D   (3*b2m1N ? 2*b2m1D)   xD
 	//
 	//     b2m1N   (tN^2 + 50tN - 2sN^3 + 27sN^2 - 104)               sD                 b2m1N   (tN^2 + 50tN - 2sN^3 + 27sN^2 - 104)   yN
 	// y = ----- * ------------------------------------ * ---------------------------- = ----- * ------------------------------------ = --
@@ -13122,7 +13122,7 @@ OutputStr (thread_num, buf); }
 |		Volume 54, number 190
 |		April 1990, pages 839-854
 |	as well as
-|		IMPROVED STAGE 2 TO P±1 FACTORING ALGORITHMS
+|		IMPROVED STAGE 2 TO P?1 FACTORING ALGORITHMS
 |		by Montgomery & Kruppa
 |		2008, inria-00188192v3
 |		https://hal.inria.fr/inria-00188192v3/document
