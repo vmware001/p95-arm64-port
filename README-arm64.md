@@ -262,3 +262,38 @@ This is a port of the Prime95 sources; the upstream license applies (see `licens
 `gwnum/LICENSE`-equivalent text inside `gwnum/README.txt`).  If used to find Mersenne primes, GIMPS is
 considered the discoverer and the GIMPS prize rules apply.  The ARM64 gwnum conversion is
 `sam8641/gwnum_c1`, same license terms.
+
+---
+
+## 10. 2026 round: PrimeNet status, P-1/ECM fixes, ARM instruction-set tuning
+
+### PrimeNet (source-built clients are excluded by the server)
+`primenet.c` now sends the `ss` (int) and `sh` (32-char) parameters that PrimeNet v5
+requires on every transaction (open-source/untrusted builds send the null values, as the
+API specifies).  With that fixed, the server still answers
+`pnErrorResult=9: Untrusted program versions currently excluded by PrimeNet` — i.e. a
+source-built mprime cannot currently fetch assignments or upload results automatically.
+Only trusted (signed) clients can, and none exists for ARM64.  Manual assignments and
+manual result submission through the PrimeNet web pages remain possible.
+Evidence: `dist-arm64/tests/realhw-rk3528-primenet*.txt`.
+
+### P-1 stage 2 fixed; two bugs remain
+* **Fixed:** P-1 stage 2 used to crash because the scalar polymult layout (one double per
+  vector, upstream's 32-bit path) does not match gwnum's ARM64 FFT layout (two doubles).
+  New `gwnum/arm64_sse2.h` maps the seven `_mm_*_pd` intrinsics polymult uses to GCC
+  vector types (compiled to NEON) and ARM64 builds polymult's SSE2 variant; the
+  dispatcher now uses it.  Result: `M1277` P-1 runs stage 2 to completion
+  (29828 transforms, 0.132 s).
+* **Remaining:** `In write_giant, unexpected len == 0 failure` in the P-1 state-save path
+  (seen for small exponents M11/M67).  P-1 still "completes" but can report a wrong
+  "no factor" (M11 = 2047 = 23*89 with B1=50000 must find 23/89; it reports NF).
+* **Remaining:** ECM stage 2 segfaults (SIGSEGV) right after stage-2 initialization;
+  ECM stage 1 is correct (M11: found factor 23).
+
+### ARM instruction-set tuning: compiler flags give nothing
+Rebuilt gwnum and mprime with `-O3 -mcpu=cortex_a53`: no measurable gain
+(LL M216091: 53 s / 0.237 ms-iter at -O2 vs 54 s / 0.242 at -O3; TF 2^57→58: 44 s both).
+The converted kernels are already 128-bit vector C that compiles to NEON, and the
+in-order Cortex-A53 is instruction/latency limited rather than optimization limited.
+Further speedups would need hand-written NEON kernels (est. 1.5–2x for a 2-way TF
+Montgomery; ~1.2–1.5x for gwnum FFT), still 1–2 orders of magnitude behind a GPU.
