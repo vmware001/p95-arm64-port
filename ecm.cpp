@@ -2057,7 +2057,12 @@ void ed_add (
 	gwnum C;
 	if (in1z == NULL) C = in2->t;
 	else gwmul3 (&ecmdata->gwdata, in1z, in2->t, C = out->z, mul_S1Z_options | GWMUL_FFT_S2 | GWMUL_STARTNEXTFFT_IF(safe11 || !extended)); // C = Z1 * T2
-	gwaddsub4o (&ecmdata->gwdata, D, C, tmp2, out->z, GWADD_DELAYNORM_IF(safe11 || !extended));				// E = D + C, H = D - C
+	/* ARM64 (NEON-converted gwnum): the delayed-norm H value feeds gwmul3
+	   (Y3 = G * H) and that multiply returns a wrong result at FFT lengths
+	   like 16K (verified by an independent test - ed_add Y3 wrong at 16K,
+	   right at 64; isolated primitives with normalized inputs all pass).
+	   Force normalization here; cost is one norm pass per add. */
+	gwaddsub4o (&ecmdata->gwdata, D, C, tmp2, out->z, GWADD_FORCE_NORMALIZE);	// E = D + C, H = D - C
         if (subtract) {
 		gwswap (tmp2, out->z);			// swap E,H since C should have been negated
 		gwmulmuladd5 (&ecmdata->gwdata, in1->x, in2->y, in1->y, in2->x, tmp1, GWMUL_FFT_S1234 | GWMUL_STARTNEXTFFT);	// F = X1*Y2 - Y1*[-]X2
