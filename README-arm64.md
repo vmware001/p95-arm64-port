@@ -277,6 +277,26 @@ Only trusted (signed) clients can, and none exists for ARM64.  Manual assignment
 manual result submission through the PrimeNet web pages remain possible.
 Evidence: `dist-arm64/tests/realhw-rk3528-primenet*.txt`.
 
+### Manual PrimeNet workflow: `contrib/primenet/` scripts
+The server policy cannot be bypassed legitimately (do not spoof a trusted program
+string — ToS/account risk), but the manual-testing pages a logged-in user would use
+are scriptable, which gives full automatic assign + report:
+
+    set PN_PASS=...                         # PrimeNet password, never written to disk
+    python contrib/primenet/primenet_manual.py --user vm001 login
+    python contrib/primenet/primenet_manual.py assign --pref 5 --exp-lo 4000000 --exp-hi 9000000 --out wt.txt
+    python contrib/primenet/primenet_manual.py submit --file results.json.txt
+
+* Results must be uploaded in `results.json.txt` JSON format; classic text lines are
+  ignored ("Ignored 1 lines that should have been uploaded in JSON format").
+* The manual-assignment form falls back to an `ECM2=` line in the requested range when
+  the requested work type has nothing available there ("No trial factoring assignments
+  found. ECM2=...").
+* `primenet_farm.py` wraps the whole loop for the RK3528 box over ssh: keep the
+  PrimeNet session alive, top up a spool of assignments, start `mprime -d` on the
+  device when idle, and upload new `results.json.txt` lines as they appear.
+  State (cookies, spool, submitted-result hashes) lives in `PN_STATE`.
+
 ### P-1 stage 2 fixed; two bugs remain
 * **Fixed:** P-1 stage 2 used to crash because the scalar polymult layout (one double per
   vector, upstream's 32-bit path) does not match gwnum's ARM64 FFT layout (two doubles).
@@ -287,8 +307,8 @@ Evidence: `dist-arm64/tests/realhw-rk3528-primenet*.txt`.
 * **Remaining:** `In write_giant, unexpected len == 0 failure` in the P-1 state-save path
   (seen for small exponents M11/M67).  P-1 still "completes" but can report a wrong
   "no factor" (M11 = 2047 = 23*89 with B1=50000 must find 23/89; it reports NF).
-* **Remaining:** ECM stage 2 segfaults (SIGSEGV) right after stage-2 initialization;
-  ECM stage 1 is correct (M11: found factor 23).
+* **Fixed (see below):** ECM stage 2 segfaulted right after stage-2 initialization;
+  ECM stage 1 was correct (M11: found factor 23).
 
 ### ARM instruction-set tuning: compiler flags give nothing
 Rebuilt gwnum and mprime with `-O3 -mcpu=cortex_a53`: no measurable gain
