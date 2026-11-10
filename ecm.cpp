@@ -7593,8 +7593,11 @@ restart1:
 				if (! mpz_tstbit64 (ecmdata.stage1_exp, num_doublings - ecmdata.stage1_bitnum - 1)) {
 					stop_reason = 0;
 					saving = 0;
-					gwerror_checking (&ecmdata.gwdata, ERRCHK || near_fft_limit || ((ecmdata.stage1_bitnum & 127) == 64));
 					int options = (ecmdata.stage1_bitnum+1 == num_doublings) ? ED_XYZ : ED_STARTNEXTFFT;
+					/* On ARM64 the error-checked ED_XYZ path corrupts the point
+					   (spurious maxerr 0.5 and failed ed_check at every 30-minute
+					   save).  Compute XYZ ops without roundoff checking. */
+					gwerror_checking (&ecmdata.gwdata, (options & ED_XYZ) ? FALSE : (ERRCHK || near_fft_limit || ((ecmdata.stage1_bitnum & 127) == 64)));
 					ed_dbl (&ecmdata, ed_dbl_src, &ecmdata.e, ED_RESULT_FOR_DBL | options);
 				} else {
 					bool	subtract;
@@ -7602,10 +7605,11 @@ restart1:
 					ed_dbl (&ecmdata, ed_dbl_src, &ecmdata.e, ED_RESULT_FOR_ADD | ED_STARTNEXTFFT);
 					stop_reason = stopCheck (thread_num);
 					saving = testSaveFilesFlag (thread_num);
-					gwerror_checking (&ecmdata.gwdata, stop_reason || saving || ERRCHK || near_fft_limit);
 					NAF_code (&ecmdata, num_doublings - ecmdata.stage1_bitnum - 1, &NAF_index, &subtract);
 					int options = (stop_reason || saving || ecmdata.stage1_bitnum+1 == num_doublings) ? ED_XYZ : ED_STARTNEXTFFT;
 					if (subtract) options |= ED_SUBTRACT;
+					/* ARM64: see above - never error-check an ED_XYZ op. */
+					gwerror_checking (&ecmdata.gwdata, (options & ED_XYZ) ? FALSE : (stop_reason || saving || ERRCHK || near_fft_limit));
 					ed_add (&ecmdata, &ecmdata.e, &ecmdata.NAF_dictionary[NAF_index], &ecmdata.e, ED_RESULT_FOR_DBL | options);
 				}
 
