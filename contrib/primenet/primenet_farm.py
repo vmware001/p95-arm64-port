@@ -122,10 +122,14 @@ def start_device(host, remote_dir, binary, lines, memory_mb):
     remote = "%s:%s/" % (host, remote_dir)
     wt_local = os.path.join(pnm.STATE_DIR, "_farm_worktodo.txt")
     with open(wt_local, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
+        for i, ln in enumerate(lines):
+            # worktodo.txt is per-worker: each worker's lines must follow a
+            # [Worker #n] section header, otherwise every line lands on
+            # worker #1 and the rest stay idle.
+            f.write("[Worker #%d]\n%s\n" % (i + 1, ln))
     scp_to(host, wt_local, remote + "worktodo.txt")
     # seed a non-interactive prime.txt if the device dir has none
-    ssh(host, "cd %s && test -f prime.txt || echo -e 'UsePrimenet=0\\nStressTester=0\\nNumCPUs=1\\nMemory=%d\\nNumWorkers=1\\nWorkPreference=0\\nCoresPerWorker=1' > prime.txt" % (shlex.quote(remote_dir), memory_mb))
+    ssh(host, "cd %s && test -f prime.txt || echo -e 'UsePrimenet=0\\nStressTester=0\\nNumCPUs=%d\\nMemory=%d\\nNumWorkers=%d\\nWorkPreference=0\\nCoresPerWorker=1' > prime.txt" % (shlex.quote(remote_dir), len(lines), memory_mb, len(lines)))
     r = ssh(host, "cd %s && test -x mprime || cp %s mprime; chmod +x mprime; nohup ./mprime -d < /dev/null > run.log 2>&1 & echo started" % (shlex.quote(remote_dir), shlex.quote(binary)), timeout=30)
     log("device start: %s" % r.stdout.decode().strip() or r.stderr.decode().strip())
 
@@ -174,6 +178,7 @@ def main():
     ap.add_argument("--num", type=int, default=1, help="assignments per fetch")
     ap.add_argument("--keep", type=int, default=2, help="keep at least this many spooled")
     ap.add_argument("--memory", type=int, default=128, help="device Memory= MB in prime.txt")
+    ap.add_argument("--workers", type=int, default=1, help="assignments to run in parallel (one per worker section)")
     ap.add_argument("--once", action="store_true", help="single pass, no loop")
     args = ap.parse_args()
 
@@ -190,7 +195,7 @@ def main():
             lines = top_up_assignments(opener, jar, args.pref, args.exp_lo,
                                        args.exp_hi, args.num, args.keep)
             if not st["running"] and lines:
-                batch, rest = lines[:1], lines[1:]
+                batch, rest = lines[:args.workers], lines[args.workers:]
                 start_device(args.host, args.remote_dir, args.binary,
                              batch, args.memory)
                 save_spool(rest)
