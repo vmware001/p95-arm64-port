@@ -102,3 +102,15 @@ Termux from battery optimization in Android settings, and expect phones to
 thermally throttle (a TV box/stick with a heatsink sustains full clocks far
 better). ECM B1 must match the assigned bounds exactly or the server silently
 drops the result.
+
+### Known issue: per-worker multithreading
+
+On some ARM64 cores (seen on a Dimensity 9400, 8 threads on one worker, 16K
+FFT) ECM stage 1 intermittently trips `ed_check`:
+`Hardware error? Point no longer on the Edwards curve. Restarting from last save file.`
+The single-threaded path (validated for 12h+ per curve on Cortex-A53) is stable.
+**Workaround: run one worker per core** (`NumWorkers` = core count, so no helper
+threads) — startup log should not print `Setting affinity to run helper thread`.
+mprime self-heals from the save file; results are never reported from a bad
+point. Multithreaded-per-worker gwmul on the NEON port still needs a root-cause
+pass (the threaded combine path is not covered by `contrib/edtest`).
