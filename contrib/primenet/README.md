@@ -34,7 +34,7 @@ Task Scheduler, e.g. every 15 minutes:
 
 ```sh
 export PN_PASS=...
-python primenet_farm.py --host root@rk3528.a0x7fff.site \
+python primenet_farm.py --host root@YOURBOX.example \
     --remote-dir /data/adb/mprime/farm1 --pref 5 \
     --exp-lo 4000000 --exp-hi 9000000 --keep 2
 ```

@@ -14,7 +14,7 @@ One "pass" does:
 
 Run it periodically (cron / Task Scheduler / while-true loop), e.g.:
     set PN_PASS=...
-    python primenet_farm.py --host root@tvbox.a0x7fff.site \
+    python primenet_farm.py --host root@YOURBOX.example \
         --remote-dir /data/adb/mprime/farm1 --pref 5 --exp-lo 4000000 --exp-hi 9000000
 
 State (spool, submitted-result hashes, session cookies) lives in the
@@ -168,7 +168,7 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--user", default=os.environ.get("PN_USER", "vm001"))
     ap.add_argument("--password", default=os.environ.get("PN_PASS"))
-    ap.add_argument("--host", default="root@tvbox.a0x7fff.site")
+    ap.add_argument("--host", default="root@YOURBOX.example")
     ap.add_argument("--remote-dir", default="/data/adb/mprime/farm1")
     ap.add_argument("--binary", default="/data/adb/mprime/mprime-ecm3",
                     help="device path of the mprime binary to copy into the farm dir")
