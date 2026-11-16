@@ -1,0 +1,4 @@
+exp=264169 bin=c82f4fbcf27c2ac0cbb71ba7f8337088
+RUN 1 exp=264169 result=STAGE2 elapsed=145s hw=0 threads=8 threads [Worker Nov 16 17:53] 4.665 bits-per-word below FFT limit
+RUN 2 exp=264169 result=STAGE2 elapsed=145s hw=0 threads=8 threads [Worker Nov 16 17:55] 4.665 bits-per-word below FFT limit
+DONE

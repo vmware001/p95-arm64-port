@@ -1,0 +1,104 @@
+﻿# Phone reproduction of the 8-thread MT corruption (UNFIXED binary mprime-mc4, md5 f630c8ac00088d36aa8e54e7e4811500)
+# Device: OPD2506 / Dimensity 9400 (1x X925 + 3x X4 + 4x A725), Android 17, 8 compute threads in one worker.
+# Config: NumCPUs=8 NumWorkers=1 CoresPerWorker=8 Memory=256; worktodo: ECM=1,2,264169,-1,50000,500000,1
+# Total log: 144273 lines.  Excerpt 1 = worker startup; excerpt 2 = end of stage 1 + failure + restart;
+# excerpt 3 = the restarted curve completing stage 1 and entering stage 2 (shows the failure was intermittent).
+
+=== excerpt 1: worker startup (lines 1-32) ===
+[Main thread Nov 16 17:37] Mersenne number primality test program version 31.7 build 2
+[Main thread Nov 16 17:37] Optimizing for CPU architecture: ARM64/AArch64, L2 cache size: 0 MB, L3 cache size: 0 MB
+[Main thread Nov 16 17:37] Starting worker.
+[Worker Nov 16 17:37] Worker starting
+[Worker Nov 16 17:37] Setting affinity to run worker on CPU core #1
+[Worker Nov 16 17:37] 
+[Worker Nov 16 17:37] Using type-1 FFT length 16K, Pass1=64, Pass2=256, clm=4, 8 threads
+[Worker Nov 16 17:37] 4.665 bits-per-word below FFT limit
+[Worker Nov 16 17:37] ECM on M264169: Edwards curve #1 with s=2899183245656064, B1=50000, B2=500000
+[Worker Nov 16 17:37] Setting affinity to run helper thread 1 on CPU core #2
+[Worker Nov 16 17:37] Setting affinity to run helper thread 2 on CPU core #3
+[Worker Nov 16 17:37] Setting affinity to run helper thread 3 on CPU core #4
+[Worker Nov 16 17:37] Setting affinity to run helper thread 4 on CPU core #5
+[Worker Nov 16 17:37] Setting affinity to run helper thread 5 on CPU core #6
+[Worker Nov 16 17:37] Setting affinity to run helper thread 6 on CPU core #7
+[Worker Nov 16 17:37] Setting affinity to run helper thread 7 on CPU core #8
+[Worker Nov 16 17:37] Exponent length is 72121, best dictionary size is 398, actual dictionary size is 398
+[Worker Nov 16 17:37] M264169 curve 1 stage 1 at exponent bit 1 [0.00%].
+[Worker Nov 16 17:37] M264169 curve 1 stage 1 at exponent bit 3 [0.00%]. Time: 0.001 sec.
+[Worker Nov 16 17:37] M264169 curve 1 stage 1 at exponent bit 4 [0.00%]. Time: 0.001 sec.
+[Worker Nov 16 17:37] M264169 curve 1 stage 1 at exponent bit 5 [0.01%]. Time: 0.001 sec.
+[Worker Nov 16 17:37] M264169 curve 1 stage 1 at exponent bit 6 [0.01%]. Time: 0.003 sec.
+[Worker Nov 16 17:37] M264169 curve 1 stage 1 at exponent bit 7 [0.01%]. Time: 0.001 sec.
+[Worker Nov 16 17:37] M264169 curve 1 stage 1 at exponent bit 8 [0.01%]. Time: 0.002 sec.
+[Worker Nov 16 17:37] M264169 curve 1 stage 1 at exponent bit 9 [0.01%]. Time: 0.001 sec.
+[Worker Nov 16 17:37] M264169 curve 1 stage 1 at exponent bit 10 [0.01%]. Time: 0.001 sec.
+[Worker Nov 16 17:37] M264169 curve 1 stage 1 at exponent bit 11 [0.01%]. Time: 0.001 sec.
+[Worker Nov 16 17:37] M264169 curve 1 stage 1 at exponent bit 12 [0.02%]. Time: 0.002 sec.
+[Worker Nov 16 17:37] M264169 curve 1 stage 1 at exponent bit 13 [0.02%]. Time: 0.002 sec.
+[Worker Nov 16 17:37] M264169 curve 1 stage 1 at exponent bit 14 [0.02%]. Time: 0.001 sec.
+[Worker Nov 16 17:37] M264169 curve 1 stage 1 at exponent bit 15 [0.02%]. Time: 0.001 sec.
+[Worker Nov 16 17:37] M264169 curve 1 stage 1 at exponent bit 16 [0.02%]. Time: 0.002 sec.
+
+=== excerpt 2: stage 1 reaches 100.00% then ed_check fails (lines 72120-72155) ===
+[Worker Nov 16 17:39] M264169 curve 1 stage 1 at exponent bit 72104 [99.98%]. Time: 0.002 sec.
+[Worker Nov 16 17:39] M264169 curve 1 stage 1 at exponent bit 72105 [99.98%]. Time: 0.002 sec.
+[Worker Nov 16 17:39] M264169 curve 1 stage 1 at exponent bit 72106 [99.99%]. Time: 0.002 sec.
+[Worker Nov 16 17:39] M264169 curve 1 stage 1 at exponent bit 72107 [99.99%]. Time: 0.001 sec.
+[Worker Nov 16 17:39] M264169 curve 1 stage 1 at exponent bit 72108 [99.99%]. Time: 0.002 sec.
+[Worker Nov 16 17:39] M264169 curve 1 stage 1 at exponent bit 72109 [99.99%]. Time: 0.002 sec.
+[Worker Nov 16 17:39] M264169 curve 1 stage 1 at exponent bit 72110 [99.99%]. Time: 0.002 sec.
+[Worker Nov 16 17:39] M264169 curve 1 stage 1 at exponent bit 72111 [99.99%]. Time: 0.001 sec.
+[Worker Nov 16 17:39] M264169 curve 1 stage 1 at exponent bit 72112 [99.99%]. Time: 0.001 sec.
+[Worker Nov 16 17:39] M264169 curve 1 stage 1 at exponent bit 72113 [100.00%]. Time: 0.002 sec.
+[Worker Nov 16 17:39] Hardware error?  Point no longer on the Edwards curve.  Restarting from last save file.
+[Worker Nov 16 17:39] 
+[Worker Nov 16 17:39] Using type-1 FFT length 16K, Pass1=64, Pass2=256, clm=4, 8 threads
+[Worker Nov 16 17:39] 4.665 bits-per-word below FFT limit
+[Worker Nov 16 17:39] ECM on M264169: Edwards curve #1 with s=1360541465516530, B1=50000, B2=500000
+[Worker Nov 16 17:39] Setting affinity to run helper thread 1 on CPU core #2
+[Worker Nov 16 17:39] Setting affinity to run helper thread 2 on CPU core #3
+[Worker Nov 16 17:39] Setting affinity to run helper thread 3 on CPU core #4
+[Worker Nov 16 17:39] Setting affinity to run helper thread 4 on CPU core #5
+[Worker Nov 16 17:39] Setting affinity to run helper thread 5 on CPU core #6
+[Worker Nov 16 17:39] Setting affinity to run helper thread 6 on CPU core #7
+[Worker Nov 16 17:39] Setting affinity to run helper thread 7 on CPU core #8
+[Worker Nov 16 17:39] Exponent length is 72121, best dictionary size is 398, actual dictionary size is 398
+[Worker Nov 16 17:39] M264169 curve 1 stage 1 at exponent bit 1 [0.00%].
+[Worker Nov 16 17:39] M264169 curve 1 stage 1 at exponent bit 3 [0.00%]. Time: 0.002 sec.
+[Worker Nov 16 17:39] M264169 curve 1 stage 1 at exponent bit 4 [0.00%]. Time: 0.002 sec.
+[Worker Nov 16 17:39] M264169 curve 1 stage 1 at exponent bit 5 [0.01%]. Time: 0.002 sec.
+[Worker Nov 16 17:39] M264169 curve 1 stage 1 at exponent bit 6 [0.01%]. Time: 0.005 sec.
+[Worker Nov 16 17:39] M264169 curve 1 stage 1 at exponent bit 7 [0.01%]. Time: 0.002 sec.
+[Worker Nov 16 17:39] M264169 curve 1 stage 1 at exponent bit 8 [0.01%]. Time: 0.002 sec.
+[Worker Nov 16 17:39] M264169 curve 1 stage 1 at exponent bit 9 [0.01%]. Time: 0.002 sec.
+[Worker Nov 16 17:39] M264169 curve 1 stage 1 at exponent bit 10 [0.01%]. Time: 0.002 sec.
+[Worker Nov 16 17:39] M264169 curve 1 stage 1 at exponent bit 11 [0.01%]. Time: 0.002 sec.
+[Worker Nov 16 17:39] M264169 curve 1 stage 1 at exponent bit 12 [0.02%]. Time: 0.002 sec.
+[Worker Nov 16 17:39] M264169 curve 1 stage 1 at exponent bit 13 [0.02%]. Time: 0.002 sec.
+[Worker Nov 16 17:39] M264169 curve 1 stage 1 at exponent bit 14 [0.02%]. Time: 0.002 sec.
+
+=== excerpt 3: restarted curve completes and enters stage 2 (last lines of the run) ===
+[Worker Nov 16 17:41] M264169 curve 1 stage 1 at exponent bit 72108 [99.99%]. Time: 0.002 sec.
+[Worker Nov 16 17:41] M264169 curve 1 stage 1 at exponent bit 72109 [99.99%]. Time: 0.002 sec.
+[Worker Nov 16 17:41] M264169 curve 1 stage 1 at exponent bit 72110 [99.99%]. Time: 0.002 sec.
+[Worker Nov 16 17:41] M264169 curve 1 stage 1 at exponent bit 72111 [99.99%]. Time: 0.002 sec.
+[Worker Nov 16 17:41] M264169 curve 1 stage 1 at exponent bit 72112 [99.99%]. Time: 0.002 sec.
+[Worker Nov 16 17:41] M264169 curve 1 stage 1 at exponent bit 72113 [100.00%]. Time: 0.001 sec.
+[Worker Nov 16 17:41] Stage 1 complete. 1221797 transforms, 3 modular inverses. Total time: 139.645 sec.
+[Worker Nov 16 17:41] Available memory is 256MB.
+[Worker Nov 16 17:41] Actual B2 will be 1728090.  Curve is worth 0.69 B2=100*B1 curves.
+[Worker Nov 16 17:41] Estimated stage 2 vs. stage 1 runtime ratio: 0.166
+[Worker Nov 16 17:41] Using 225MB of memory.  D: 2730, degree-288 polynomials.  Ftree polys in memory: 2
+[Worker Nov 16 17:41] Setting affinity to run helper thread 1 on CPU core #2
+[Worker Nov 16 17:41] Setting affinity to run helper thread 2 on CPU core #3
+[Worker Nov 16 17:41] Setting affinity to run helper thread 3 on CPU core #4
+[Worker Nov 16 17:41] Setting affinity to run helper thread 4 on CPU core #5
+[Worker Nov 16 17:41] Setting affinity to run helper thread 5 on CPU core #6
+[Worker Nov 16 17:41] Setting affinity to run helper thread 6 on CPU core #7
+[Worker Nov 16 17:41] Setting affinity to run helper thread 7 on CPU core #8
+[Worker Nov 16 17:41] Setting affinity to run polymult helper thread on CPU core #2
+[Worker Nov 16 17:41] Setting affinity to run polymult helper thread on CPU core #3
+[Worker Nov 16 17:41] Setting affinity to run polymult helper thread on CPU core #4
+[Worker Nov 16 17:41] Setting affinity to run polymult helper thread on CPU core #5
+[Worker Nov 16 17:41] Setting affinity to run polymult helper thread on CPU core #6
+[Worker Nov 16 17:41] Setting affinity to run polymult helper thread on CPU core #7
+[Worker Nov 16 17:41] Setting affinity to run polymult helper thread on CPU core #8

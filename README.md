@@ -23,11 +23,21 @@ userland). See [README-arm64.md](README-arm64.md) for the full port notes.
   * `f195b22` neutralized the spurious MAXERR=0.5 readout on ARM64
   * `6fd0572`/`72fe6b2`-line fixes: P-1 stage-2 polymult layout, ECM stage-2 SIGSEGV,
     PrimeNet `ss`/`sh` parameters
+  * **per-worker multithreading** (`CoresPerWorker` > 1) — gwnum's pass-1 carry-section
+    handshake relied on x86-TSO store ordering; on ARM64 a thread could propagate
+    carries into not-yet-normalized FFT blocks and produce a wrong (but numerically
+    clean) product, which showed up as `Point no longer on the Edwards curve` after a
+    full ECM stage 1.  Fixed by serialising the `(start_block, carry flag)` handshake
+    under gwnum's `thread_lock` — see `contrib/experiments/mt-fix/` for the analysis,
+    reproducer and verification
 * `contrib/primenet/` — **manual PrimeNet workflow** scripts (source-built clients are
   excluded from the automatic v5 protocol: `pnErrorResult=9`; these drive the web pages
   instead — login / assign / submit + an auto-farm loop for the RK3528 box)
 * `contrib/edtest/` — independent Edwards-arithmetic checker (links only gwnum, verified
   against Python big-int math) that pinned the 16K-FFT `ed_add` bug
+* `contrib/experiments/mt-fix/` — the **`CoresPerWorker>1` corruption bug**: static
+  audit, phone reproducer, differential MT stress harness (`mtstress.c`) and the
+  before/after validation table
 
 ## Build
 
@@ -103,14 +113,29 @@ thermally throttle (a TV box/stick with a heatsink sustains full clocks far
 better). ECM B1 must match the assigned bounds exactly or the server silently
 drops the result.
 
-### Known issue: per-worker multithreading
+### Fixed: per-worker multithreading (`CoresPerWorker` > 1)
 
-On some ARM64 cores (seen on a Dimensity 9400, 8 threads on one worker, 16K
-FFT) ECM stage 1 intermittently trips `ed_check`:
+Per-worker multithreading used to intermittently return wrong FFT products on
+ARM64. A single ECM worker using 8 threads on a 16K FFT (e.g. `M264169`,
+`B1=50000`) would finish stage 1 and then trip
 `Hardware error? Point no longer on the Edwards curve. Restarting from last save file.`
-The single-threaded path (validated for 12h+ per curve on Cortex-A53) is stable.
-**Workaround: run one worker per core** (`NumWorkers` = core count, so no helper
-threads) — startup log should not print `Setting affinity to run helper thread`.
-mprime self-heals from the save file; results are never reported from a bad
-point. Multithreaded-per-worker gwmul on the NEON port still needs a root-cause
-pass (the threaded combine path is not covered by `contrib/edtest`).
+about once every 1–2 stage-1 runs. The single-threaded path was never affected.
+
+Root cause: `gwnum/gwnum.c`'s pass-1 carry-section state machine coordinates the
+helper threads with plain cross-thread fields and relies on x86-TSO store
+ordering (the source itself says *"SECTION SPLITTING CODE MUST CHANGE THESE
+VALUES IN A PARTICULAR ORDER SUCH THAT THIS CHECK ALWAYS WORKS"*). On ARM64 a
+thread can observe a section's new `start_block` together with a stale
+`carry_in_blocks_finished = TRUE` from that slot's previous use, skip the wait,
+and add carries into FFT blocks that have not been normalized yet. The result is
+a wrong but numerically clean product — round-off checking never fires — so the
+corruption only surfaces at the next `ed_check`.
+
+Fix: serialise the `(start_block, carry_in_blocks_finished)` handshake on
+gwnum's existing `thread_lock` mutex and publish the normalized FFT data before
+setting the flag. Single-threaded mode is untouched (these paths only run when
+`num_threads > 1`). Validation: 5/5 clean full 8-thread ECM stage-1 runs on the
+fixed binary, the unfixed binary fails the owner's original `M291143` case
+(`3.019 bits-per-word below FFT limit`, 8 threads) in 1 run, plus the box and
+LL-harness regression tests — full analysis, reproducer and numbers in
+[`contrib/experiments/mt-fix/`](contrib/experiments/mt-fix/README.md).

@@ -1,0 +1,5 @@
+fix test: 858aa1aec726c1eafc40035aa4926a5a  ./mprime
+RUN 1 result=STAGE2 elapsed=145s hw=0 threads=8 threads
+RUN 2 result=STAGE2 elapsed=145s hw=0 threads=8 threads
+RUN 3 result=STAGE2 elapsed=140s hw=0 threads=8 threads
+DONE

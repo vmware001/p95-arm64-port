@@ -1,0 +1,4 @@
+exp=291143 bin=c82f4fbcf27c2ac0cbb71ba7f8337088
+RUN 1 exp=291143 result=STAGE2 elapsed=140s hw=0 threads=8 threads [Worker Nov 16 18:01] 3.019 bits-per-word below FFT limit
+RUN 2 exp=291143 result=STAGE2 elapsed=145s hw=0 threads=8 threads [Worker Nov 16 18:04] 3.019 bits-per-word below FFT limit
+DONE

@@ -5682,6 +5682,13 @@ int pass1_state1_assign_first_block (
 			new_size = round_up_to_multiple_of (new_size, gwdata->num_postfft_blocks);
 
 			// Peel off the ending blocks of the target section for this thread to start processing
+			/* ARM64: the carry-section bookkeeping below is also inspected by other
+			   threads (the carry-into wait loop and the stall-prone split scan), and
+			   the upstream x86 code relies on x86-TSO store ordering for the
+			   (start_block, carry_in_blocks_finished) pair - see the "Must be done
+			   AFTER changing start_block!" comment.  Publish the new section under
+			   the same lock the wait loop uses. */
+			gwmutex_lock (&gwdata->thread_lock);
 			gwdata->pass1_carry_sections[i].start_block =
 			gwdata->pass1_carry_sections[i].next_block = gwdata->pass1_carry_sections[target].last_block - new_size;
 			gwdata->pass1_carry_sections[i].last_block = gwdata->pass1_carry_sections[target].last_block;
@@ -5691,6 +5698,7 @@ int pass1_state1_assign_first_block (
 			// Shrink target section
 			gwdata->pass1_carry_sections[target].last_block -= new_size;
 			gwdata->pass1_carry_sections[target].carry_out_section = i;
+			gwmutex_unlock (&gwdata->thread_lock);
 
 			// Unlock target
 			unlock_carry_section (gwdata, target);
@@ -6314,7 +6322,12 @@ int pass1_get_next_block_mt (
 /* Signal an event in case the dependent section is waiting on us to finish processing our first blocks. */
 
 		if (asm_data->this_block + asm_data->cache_line_multiplier == gwdata->pass1_carry_sections[i].start_block + gwdata->num_postfft_blocks) {
+			/* ARM64: publish the normalized FFT data of the first blocks before
+			   telling other threads that carries may be added into them.  x86-TSO
+			   gave that ordering for free; the lock release below provides it here. */
+			gwmutex_lock (&gwdata->thread_lock);
 			gwdata->pass1_carry_sections[i].carry_in_blocks_finished = TRUE;
+			gwmutex_unlock (&gwdata->thread_lock);
 			gwevent_signal (&gwdata->can_carry_into);
 		}
 
@@ -6363,15 +6376,32 @@ int pass1_get_next_block_mt (
 		gwdata->pass1_carry_sections[i].section_state = 2;
 		unlock_carry_section (gwdata, i);
 
-		int carry_out_section = gwdata->pass1_carry_sections[i].carry_out_section;
-		int last_block = gwdata->pass1_carry_sections[i].last_block != gwdata->num_pass1_blocks ? gwdata->pass1_carry_sections[i].last_block : 0;
-		while (last_block == gwdata->pass1_carry_sections[carry_out_section].start_block &&
-			!gwdata->pass1_carry_sections[carry_out_section].carry_in_blocks_finished) {
+		/* ARM64: read the (start_block, carry_in_blocks_finished) pair of the
+		   carry-out section under the same lock the splitter and the flag-setter
+		   use.  Upstream relies on x86-TSO ordering to never observe the new
+		   start_block together with a stale TRUE flag (which would make us add
+		   carries into blocks that have not been normalized yet).  The locked
+		   re-check after the counter/reset dance preserves the lost-wakeup fix
+		   described above. */
+		int carry_out_section;
+		int last_block;
+		gwmutex_lock (&gwdata->thread_lock);
+		carry_out_section = gwdata->pass1_carry_sections[i].carry_out_section;
+		last_block = gwdata->pass1_carry_sections[i].last_block != gwdata->num_pass1_blocks ? gwdata->pass1_carry_sections[i].last_block : 0;
+		gwmutex_unlock (&gwdata->thread_lock);
+		for ( ; ; ) {
+			int ready;
+			gwmutex_lock (&gwdata->thread_lock);
+			ready = (last_block != gwdata->pass1_carry_sections[carry_out_section].start_block ||
+				 gwdata->pass1_carry_sections[carry_out_section].carry_in_blocks_finished);
+			gwmutex_unlock (&gwdata->thread_lock);
+			if (ready) break;
 			gwmutex_lock (&gwdata->thread_lock);
 			if (atomic_fetch_incr (gwdata->can_carry_into_counter) == 0) gwevent_reset (&gwdata->can_carry_into);
+			ready = (last_block != gwdata->pass1_carry_sections[carry_out_section].start_block ||
+				 gwdata->pass1_carry_sections[carry_out_section].carry_in_blocks_finished);
 			gwmutex_unlock (&gwdata->thread_lock);
-			if (last_block != gwdata->pass1_carry_sections[carry_out_section].start_block ||
-				gwdata->pass1_carry_sections[carry_out_section].carry_in_blocks_finished) { atomic_decr (gwdata->can_carry_into_counter); break; }
+			if (ready) { atomic_decr (gwdata->can_carry_into_counter); break; }
 			gwevent_wait (&gwdata->can_carry_into, 0);
 			atomic_decr (gwdata->can_carry_into_counter);
 		}
