@@ -1,11 +1,10 @@
 #!/system/bin/sh
-# GIMPS farm watchdog — NETWORK-FREE build.
+# GIMPS farm watchdog.
 #
-# Keeps governors / mprime / ddns-go alive and rotates the log.  It
-# deliberately does NOT talk to PrimeNet and does NOT top up worktodo:
-# the vm001 account is under risk-control review, so *no* request to
-# mersenne.org may originate from the box until the flag is lifted.
-# Results are submitted later, in one manual batch, from the workstation.
+# Keeps governors / mprime / ddns-go / the AutoPrimeNet submit loop alive and
+# rotates the log.  It does NOT submit anything itself: result submission is
+# done by apn/apn_loop.sh (AutoPrimeNet, PrimeNet v5 API, report-only), which
+# this watchdog restarts if it ever dies.
 #
 # Runs forever; started by boot.sh (or as an init service, see farm.rc).
 PATH=/sbin:/vendor/bin:/system/sbin:/system/bin:/system/xbin
@@ -35,6 +34,12 @@ while true; do
     if ! pgrep -f '/data/local/ddns-go/ddns-go' >/dev/null 2>&1; then
         log "ddns-go down; restarting"
         (cd /data/local/ddns-go && nohup ./ddns-go >/dev/null 2>&1 &)
+    fi
+
+    # --- AutoPrimeNet submit loop (PrimeNet v5 API, report-only) ---
+    if [ -x "$MP/apn/apn_loop.sh" ] && ! pgrep -f "$MP/apn/apn_loop.sh" >/dev/null 2>&1; then
+        log "apn_loop down; restarting"
+        nohup $MP/apn/apn_loop.sh >/dev/null 2>&1 &
     fi
 
     # --- rotate run.log if > 50 MB ---

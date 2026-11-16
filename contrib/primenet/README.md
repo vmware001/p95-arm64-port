@@ -52,9 +52,16 @@ python autoprimenet.py -w /path/to/apn-vm001 -u vm001 --prime95 -T 5 \
 python autoprimenet.py -w /path/to/apn-vm001 -u vm001 --prime95 \
     -r results.json.txt --report-results
 
-# or from the workstation, including the ssh pull/cleanup of the farm file:
+# or from a workstation (fallback; the primary submit loop runs on the box itself,
+# see contrib/farm/apn/ and the "Deployment layout" section of contrib/farm/README.md):
 pwsh contrib/farm/submit_apn.ps1 -ApnDir /path/to/apn-vm001 -ApnScript /path/to/AutoPrimeNet/autoprimenet.py
 ```
+
+On the box the same thing runs unattended: `contrib/farm/apn/apn_loop.sh` calls
+`submit_apn.sh` every 30 minutes inside the arm64 Debian chroot
+(`/data/local/debian64`, needs `python3-requests` once), so no workstation is
+required. `boot.sh` starts the loop and `farm_watchdog.sh` restarts it if it dies;
+log: `/data/adb/mprime/apn/submit.log`.
 
 Assignment fetching for mprime still uses the manual assignment page
 (`primenet_manual.py assign` or the web form); only *results* go through the

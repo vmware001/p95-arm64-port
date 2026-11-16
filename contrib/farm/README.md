@@ -15,22 +15,38 @@ Self-contained scripts that run **on the device** (no PC required):
 - `farm_watchdog.sh` — forever loop (10 min cycle): re-assert governors,
   restart mprime/ddns-go if dead, rotate `run.log` at 50 MB. **Network-free**
   (see "account lockdown" below).
-- `submit_once.py` / `topup_once.py` — kept for reference only. They are
-  *disabled on the box*; PrimeNet submission now goes through the v5 API with
-  **AutoPrimeNet** (the manual results page is deprecated — see
-  `../primenet/README.md`).
-- `submit_apn.ps1` — **run this on the workstation** (it is the one script here
-  that needs the PC: it pulls `results.json.txt` from the box over ssh, submits
-  the new lines with AutoPrimeNet's Prime95/MPrime report-only mode, then
-  removes the handled lines from the box and archives them locally). Example:
+- `apn/` — **PrimeNet result submission runs on the box itself** (AutoPrimeNet,
+  PrimeNet v5 API, report-only):
+  * `apn_loop.sh` — every 30 min calls `submit_apn.sh`; started by `boot.sh`
+    (step 6) and restarted by `farm_watchdog.sh` if it dies;
+  * `submit_apn.sh` — snapshots `farm1/results.json.txt` into the AutoPrimeNet
+    workdir, submits the new lines inside the arm64 Debian chroot
+    (`/data/local/debian64`, Python 3.11 + `python3-requests`) and then runs
+    `trim_results.py`, which moves the handled lines to
+    `farm1/results.submitted.json.txt` and keeps the rest for the next attempt;
+  * logs: `/data/adb/mprime/apn/{loop,submit,autoprimenet}.log`.
 
-  ```powershell
-  # once: see contrib/primenet/README.md for the AutoPrimeNet setup/registration
-  .\contrib\farm\submit_apn.ps1 -ApnDir D:\p95\apn-vm001 -ApnScript D:\p95\AutoPrimeNet\autoprimenet.py
+  Deployment layout on the box (registration details in `../primenet/README.md`):
+
+  ```
+  /data/adb/mprime/apn/autoprimenet.py   patched AutoPrimeNet 2.0.2
+                                         (../primenet/patches/autoprimenet-2.0.2-prime95-report-only.patch)
+  /data/adb/mprime/apn/prime.ini         registration: ComputerGUID + CPU info
+                                         (created by the one-time registration command)
+  /data/adb/mprime/apn/results_sent.txt  AutoPrimeNet's ledger of handled lines
+  /data/adb/mprime/apn/{submit_apn.sh,apn_loop.sh,trim_results.py}
+  /data/adb/mprime/farm1/results.json.txt             mprime result spool (trimmed after submission)
+  /data/adb/mprime/farm1/results.submitted.json.txt   archive of everything handled
   ```
 
-  Schedule it (Task Scheduler, every 15-30 min) or run it by hand after a batch
-  of curves. `-DryRun` shows what would be submitted without touching the box.
+  The arm64 chroot needs `python3-requests` once:
+  `debian64.sh /usr/bin/apt-get install -y python3-requests`. `boot.sh` sets up the
+  `/data/adb/mprime` → `/data/local/debian64/data/adb/mprime` bind mount; the submit
+  script re-asserts it on every run.
+- `submit_once.py` / `topup_once.py` — kept for reference only (old manual-page flow).
+- `submit_apn.ps1` — **workstation fallback** (same AutoPrimeNet submission from a PC;
+  pulls/pushes the results file over ssh). The box-side `apn/` loop is the primary
+  path and needs no PC.
 
 ## Run 4 workers, not 3: Memory must be big enough
 
