@@ -45,14 +45,18 @@
 param(
     [string]$Box = 'root@tvbox.a0x7fff.site',
     [string]$RemoteDir = '/data/adb/mprime/farm1',
-    [string]$ApnDir = (Join-Path $PSScriptRoot '..\..\_work\autoprimenet\apn-vm001'),
-    [string]$ApnScript = (Join-Path $PSScriptRoot '..\..\_work\autoprimenet\repo\autoprimenet.py'),
+    [string]$ApnDir,
+    [string]$ApnScript,
     [string]$User = 'vm001',
     [string]$Python = 'python',
     [switch]$DryRun
 )
 
 $ErrorActionPreference = 'Stop'
+# $PSScriptRoot can be empty inside a param() default block on Windows PowerShell 5.1
+# Default locations are workspace-level (repo root is contrib/farm/../..):
+if (-not $ApnDir) { $ApnDir = Join-Path $PSScriptRoot '..\..\..\_work\autoprimenet\apn-vm001' }
+if (-not $ApnScript) { $ApnScript = Join-Path $PSScriptRoot '..\..\..\_work\autoprimenet\repo\autoprimenet.py' }
 $remoteResults = ($RemoteDir.TrimEnd('/')) + '/results.json.txt'
 $localResults = Join-Path $ApnDir 'results.json.txt'
 $sentFile = Join-Path $ApnDir 'results_sent.txt'
@@ -76,8 +80,19 @@ if ($lines.Count -eq 0) { Write-Host 'Nothing to submit.'; exit 0 }
 
 Write-Host '[2/4] submitting via AutoPrimeNet (v5 API, Prime95/MPrime report-only)'
 $apnArgs = @($ApnScript, '-w', $ApnDir, '-u', $User, '--prime95', '-r', 'results.json.txt', '--report-results')
-& $Python @apnArgs *>&1 | Tee-Object -FilePath $logFile | Out-Host
-$apnRc = $LASTEXITCODE
+# AutoPrimeNet logs to stderr; native-command stderr would trip $ErrorActionPreference='Stop'
+# in Windows PowerShell 5.1, so use Start-Process with explicit redirection instead.
+$outFile = Join-Path $ApnDir 'last_run.out'
+$errFile = Join-Path $ApnDir 'last_run.err'
+$proc = Start-Process -FilePath $Python -ArgumentList $apnArgs -NoNewWindow -Wait -PassThru `
+    -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+$apnRc = $proc.ExitCode
+$combined = @()
+foreach ($f in @($outFile, $errFile)) {
+    if (Test-Path $f) { $combined += @(Get-Content $f) }
+}
+$combined | Out-File -FilePath $logFile -Encoding utf8
+$combined | Out-Host
 
 $credit = 0.0
 foreach ($m in Select-String -Path $logFile -Pattern 'CPU credit is ([\d.]+) GHz-days' -AllMatches) {
@@ -114,7 +129,8 @@ if ($remaining.Count -eq $lines.Count) {
     $tmp = Join-Path $env:TEMP ('results_push_' + [guid]::NewGuid().ToString('N') + '.txt')
     Copy-Item $localResults $tmp
     try {
-        & scp -q $tmp "$Box`:$remoteResults"
+        # -O: the box has no sftp-server (OpenSSH >= 9 defaults to the SFTP protocol for scp)
+        & scp -O -q $tmp "$Box`:$remoteResults"
         if ($LASTEXITCODE -ne 0) { throw "scp failed (rc=$LASTEXITCODE)" }
         Write-Host ("      farm results updated: {0} line(s) remain" -f $remaining.Count)
     } finally {
