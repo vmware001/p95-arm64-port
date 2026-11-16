@@ -1,0 +1,244 @@
+#!/bin/sh
+# ==========================================================================
+# mprime ARM64 phone validation pack  rev3   (Termux, NO ROOT required)
+#
+#   one line:
+#     curl -fL https://s.a0x7fff.site/download/phone-val -o val && sh val
+#
+# rev3 changes (2026-11-16):
+#   * phases are stopped with SIGKILL (sleep + kill -9) instead of `timeout`:
+#     on Android 17 mprime's graceful SIGTERM shutdown path can hang, which
+#     made phase 2 look frozen.
+#   * a heartbeat line is printed while a phase runs, so the terminal is
+#     never silent for minutes.
+#   * stale/incomplete mprime from a previous failed run is reported as such
+#     and re-downloaded instead of printing a bare checksum mismatch.
+#   * single-thread phases are pinned to the highest-numbered CPU (usually the
+#     prime core on ARM Android) when `taskset` is available, so the measured
+#     speed is the big core's speed.
+#
+# Primary host is the DIRECT one (s.a0x7fff.site, IPv6); Cloudflare
+# (cf.a0x7fff.site) is the fallback. Only the mprime binary is downloaded
+# (4 MB gz / 10 MB raw); all configs are embedded below.
+#
+#   phase 1  PRP M11213, 1 thread      -> known answer: probable prime
+#   phase 2  ECM M264169, 1 thread     -> control: zero errors expected
+#   phase 3  PRP M264169, 8 threads    -> heavy MT squaring + Gerbicz checks
+#   phase 4  ECM M264169, 8 threads    -> reproduction attempt of the old bug
+#
+# Report: ~/phone-val/report.txt - send it back. Never contacts PrimeNet.
+# ==========================================================================
+set -u
+
+PRIMARY="${VAL_BASE:-https://s.a0x7fff.site/download}"
+ALT="${VAL_ALT:-https://cf.a0x7fff.site/download}"
+DIR="${VAL_DIR:-$HOME/phone-val}"
+MP_MD5="f630c8ac00088d36aa8e54e7e4811500"
+MP_SIZE=10126488
+REPORT="$DIR/report.txt"
+
+command -v curl >/dev/null 2>&1 || { echo "curl missing. Run: pkg install curl"; exit 1; }
+
+mkdir -p "$DIR" || exit 1
+cd "$DIR" || exit 1
+: > "$REPORT"
+say() { printf '%s\n' "$*" | tee -a "$REPORT"; }
+
+say "== mprime ARM64 phone validation (rev3) =="
+say "date    : $(date 2>/dev/null)"
+say "device  : $(getprop ro.product.model 2>/dev/null)  board=$(getprop ro.board.platform 2>/dev/null)"
+say "android : $(getprop ro.build.version.release 2>/dev/null)  sdk=$(getprop ro.build.version.sdk 2>/dev/null)"
+say "kernel  : $(uname -a)"
+NC=$(nproc 2>/dev/null); [ -z "$NC" ] && NC=$(getconf _NPROCESSORS_ONLN 2>/dev/null)
+say "cores   : ${NC:-unknown}"
+say ""
+
+# ---------------------------------------------------------------- configs
+cat > phone-prime-1t.txt <<'EOF'
+UsePrimenet=0
+StressTester=0
+NumCPUs=1
+NumWorkers=1
+CoresPerWorker=1
+Memory=128
+ProofPower=0
+V30OptionsConverted=1
+OutputIterations=0
+EOF
+cat > phone-prime-8t.txt <<'EOF'
+UsePrimenet=0
+StressTester=0
+NumCPUs=8
+NumWorkers=1
+CoresPerWorker=8
+Memory=256
+ProofPower=0
+V30OptionsConverted=1
+OutputIterations=0
+EOF
+printf 'PRP=1,2,11213,-1,72,0\nPRP=1,2,1277,-1,72,0\n' > phone-worktodo-prp.txt
+printf 'PRP=1,2,264169,-1,72,0\n' > phone-worktodo-prp-mt.txt
+printf 'ECM=1,2,264169,-1,50000,500000,1\n' > phone-worktodo-ecm.txt
+say "config files written locally"
+
+# ------------------------------------------------------------------ helpers
+mprime_md5() {
+  command -v md5sum >/dev/null 2>&1 && md5sum mprime 2>/dev/null | awk '{print $1}'
+}
+
+verify_mprime() {
+  [ -f mprime ] || return 1
+  if command -v md5sum >/dev/null 2>&1; then
+    GOT=$(mprime_md5)
+    [ "$GOT" = "$MP_MD5" ] && return 0
+    LAST_MD5="${GOT:-none}"
+    return 1
+  fi
+  SZ=$(wc -c < mprime 2>/dev/null | tr -d ' ')
+  [ "$SZ" = "$MP_SIZE" ] && return 0
+  return 1
+}
+
+probe_speed() {  # $1 = base url -> bytes/sec (integer; 0 on failure)
+  out=$(curl -sS -o /dev/null -m 10 -w '%{speed_download}' "$1/phone-val" 2>/dev/null)
+  case "$out" in ''|*[!0-9.]*) echo 0 ;; *) echo "${out%%.*}" ;; esac
+}
+
+unpack_gz() {
+  [ -f mprime.gz ] || return 1
+  if command -v gzip >/dev/null 2>&1; then gzip -df mprime.gz
+  elif command -v gunzip >/dev/null 2>&1; then gunzip -f mprime.gz
+  else return 1
+  fi
+  [ -f mprime ]
+}
+
+fetch_from() {  # $1 = base url; 0 if verified mprime in place
+  base=$1
+  rm -f mprime mprime.gz
+  say "-- $base/mprime-arm64.gz  (4 MB)"
+  if curl -fL --connect-timeout 15 -m 900 --retry 3 --retry-delay 2 \
+        "$base/mprime-arm64.gz" -o mprime.gz 2>/dev/null; then
+    if unpack_gz && verify_mprime; then return 0; fi
+    say "   gz unpack/verify failed"
+  else
+    say "   gz download failed"
+  fi
+  rm -f mprime mprime.gz
+  say "-- $base/mprime-arm64  (10 MB)"
+  if curl -fL --connect-timeout 15 -m 1500 --retry 2 --retry-delay 2 \
+        "$base/mprime-arm64" -o mprime 2>/dev/null; then
+    verify_mprime && return 0
+  else
+    say "   raw download failed"
+  fi
+  rm -f mprime
+  return 1
+}
+
+# ------------------------------------------------------------------ mprime
+LAST_MD5=""
+if verify_mprime; then
+  say "using existing ./mprime (network skipped)"
+else
+  if [ -f mprime ]; then
+    say "stale/incomplete ./mprime (md5=${LAST_MD5:-unknown}), re-downloading"
+    rm -f mprime mprime.gz
+  fi
+  S1=$(probe_speed "$PRIMARY")
+  S2=$(probe_speed "$ALT")
+  say "host probe: direct=$S1 B/s   cloudflare=$S2 B/s"
+  if [ "$S1" -ge "$S2" ]; then HOSTS="$PRIMARY $ALT"; else HOSTS="$ALT $PRIMARY"; fi
+  ok=0
+  for base in $HOSTS; do
+    if fetch_from "$base"; then ok=1; break; fi
+    say "-- switching to the other host"
+  done
+  if [ "$ok" = "0" ]; then
+    say ""
+    say "DOWNLOAD FAILED on both hosts."
+    say "Download manually and place it here as 'mprime', then re-run this script:"
+    say "    $PRIMARY/mprime-arm64.gz   (4 MB, unzip)"
+    say "    $ALT/mprime-arm64.gz       (4 MB, unzip)"
+    say "    $PRIMARY/mprime-arm64      (10 MB)"
+    exit 1
+  fi
+fi
+chmod 755 mprime
+say "   mprime ok"
+say ""
+
+if [ "${VAL_SELFTEST:-0}" = "1" ]; then
+  say "VAL_SELFTEST=1 -> download/checksum/config generation verified, phases skipped"
+  exit 0
+fi
+
+# optional pinning to the fastest core for single-thread phases
+BIGCORE=""
+if command -v taskset >/dev/null 2>&1 && [ -n "${NC:-}" ] && [ "$NC" -ge 4 ]; then
+  BIGCORE=$((NC - 1))
+  say "taskset found: single-thread phases will be pinned to CPU $BIGCORE"
+else
+  say "taskset not available (pkg install util-linux) - single-thread phases unpinned"
+fi
+
+run_phase() {  # $1=name $2=prime.txt $3=worktodo.txt $4=seconds $5=pin(1/0)
+  name=$1; pf=$2; wf=$3; secs=$4; pin=${5:-0}
+  say ""
+  say "---- phase: $name  (running ${secs}s then SIGKILL)"
+  cp -f "$pf" prime.txt
+  cp -f "$wf" worktodo.txt
+  rm -f results.txt results.json.txt run.log ./*.bu 2>/dev/null
+  if [ "$pin" = "1" ] && [ -n "$BIGCORE" ]; then
+    taskset -c "$BIGCORE" ./mprime -d > run.log 2>&1 &
+  else
+    ./mprime -d > run.log 2>&1 &
+  fi
+  mp=$!
+  nap=0
+  while [ "$nap" -lt "$secs" ]; do
+    sleep 10
+    nap=$((nap + 10))
+    NL=$(wc -l < run.log 2>/dev/null | tr -d ' ')
+    L=$(tail -1 run.log 2>/dev/null)
+    say "   [${nap}s] lines=${NL:-0} ${L:-no output yet}"
+  done
+  kill -9 "$mp" 2>/dev/null
+  wait "$mp" 2>/dev/null
+  say "   killed hard (SIGKILL)"
+  say "   counters:"
+  for pat in "Point no longer on Edwards" "Hardware error" "Gerbicz error check passed" "Gerbicz error check failed" "roundoff" "FFT error" "disagrees" "is a probable prime" "is not prime"; do
+    n=$(cat run.log results.txt 2>/dev/null | grep -c "$pat" 2>/dev/null)
+    [ -z "$n" ] && n=0
+    say "     [$pat] x$n"
+  done
+  say "   config line:"
+  grep -m1 -E "threads|FFT length" run.log 2>/dev/null | sed 's/^/     /'
+  say "   results.txt:"
+  tail -4 results.txt 2>/dev/null | sed 's/^/     /'
+  say "   run.log tail:"
+  tail -5 run.log 2>/dev/null | sed 's/^/     /'
+  cp -f run.log "run-$name.log" 2>/dev/null
+}
+
+run_phase "1-prp-1thread"  phone-prime-1t.txt phone-worktodo-prp.txt    40  1
+run_phase "2-ecm-1thread"  phone-prime-1t.txt phone-worktodo-ecm.txt    180 1
+run_phase "3-prp-8thread"  phone-prime-8t.txt phone-worktodo-prp-mt.txt 150 0
+run_phase "4-ecm-8thread"  phone-prime-8t.txt phone-worktodo-ecm.txt    180 0
+
+say ""
+say "== SUMMARY =="
+for f in run-1-prp-1thread.log run-2-ecm-1thread.log run-3-prp-8thread.log run-4-ecm-8thread.log; do
+  [ -f "$f" ] || continue
+  e=$(grep -Ec "Point no longer on Edwards|Hardware error" "$f" 2>/dev/null)
+  g=$(grep -c "Gerbicz error check passed" "$f" 2>/dev/null)
+  b=$(grep -c "Gerbicz error check failed" "$f" 2>/dev/null)
+  say "   $f : edwards/hw=${e:-0} gerbicz_ok=${g:-0} gerbicz_fail=${b:-0}"
+done
+say ""
+say "expected:  1-prp -> 'M11213 is a probable prime' + 'M1277 is not prime'"
+say "           2-ecm -> edwards/hw = 0, stage-1 progress lines present"
+say "           3-prp -> gerbicz_ok > 0, gerbicz_fail = 0"
+say "           4-ecm -> if the old bug persists, edwards/hw > 0 HERE"
+say ""
+say "report saved to: $REPORT  (send it back)"
