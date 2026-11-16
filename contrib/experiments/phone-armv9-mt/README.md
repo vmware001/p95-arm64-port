@@ -38,6 +38,26 @@ The Termux failure reported earlier (`Hardware error? Point no longer on
 Edwards curve`, ~80% of stage 1 with an 8-thread worker) is the same defect:
 the corrupted FFT makes the elliptic-curve point coordinates invalid.
 
+## How the phone was used (and cleaned up)
+
+The test phone is the owner's daily device, so the whole experiment was
+**non-invasive**:
+
+- only files under `/data/local/tmp/` were created (`mprime` copy, configs,
+  logs, run directories) through `adb push`; nothing in `/system`, no apps
+  installed, no settings changed by the test itself;
+- every long run was started **detached** (`setsid ./mprime -d &`) so a dropped
+  wireless-adb connection would not kill it, then polled with short `adb shell`
+  commands (`pt_start.sh`, `pt_status.sh` in this directory);
+- all `/data/local/tmp` artefacts were removed after the experiment
+  (`pkill -9 -x mprime`, `rm -rf /data/local/tmp/pt* /data/local/tmp/run_* ...`)
+  and the device was left with no extra processes;
+- the owner enabled "stay awake while charging" for the duration, otherwise
+  wireless adb drops when the screen locks and long polls time out.
+
+If this is ever repeated: prefer doing it while the phone is idle, keep runs to
+a few minutes, and avoid changing any on-device setting.
+
 ## Stage 2 is silent, not hung (important)
 
 ECM stage 2 logs almost nothing between "Using XXX MB of memory ... Ftree polys
