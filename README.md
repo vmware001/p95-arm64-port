@@ -68,17 +68,19 @@ assignment/result automation, or run offline.
 ## Prebuilt binary
 
 Grab the static AArch64 build from
-[Releases](https://github.com/vmware001/p95-arm64-port/releases)
-(`mprime-mc3`, ~9.8 MB, md5 `82f9bea8ef907de693282fdb5212ed6b`). It is
-musl-static — runs on any arm64 Android (Termux, no root needed) or arm64 Linux
-with zero dependencies.
+[Releases](https://github.com/vmware001/p95-arm64-port/releases):
+**`mprime-mc4mt`** (10,126,600 bytes, md5 `c82f4fbcf27c2ac0cbb71ba7f8337088`) —
+includes every fix below, in particular the `CoresPerWorker>1` multithreading fix.
+It is musl-static — runs on any arm64 Android (Termux, no root needed) or arm64
+Linux with zero dependencies. (`mprime-mc4` / `mprime-mc3` are the previous
+builds without the MT fix.)
 
 ### Termux quick start (no root)
 
 ```sh
 pkg update && pkg install wget python
 mkdir -p ~/mprime && cd ~/mprime
-wget https://github.com/vmware001/p95-arm64-port/releases/download/v3.10.7b02-arm64/mprime-mc3 -O mprime
+wget https://github.com/vmware001/p95-arm64-port/releases/download/v3.10.7b02-arm64/mprime-mc4mt -O mprime
 chmod +x mprime
 
 # minimal config BEFORE first run (in-client PrimeNet is unusable on untrusted builds:

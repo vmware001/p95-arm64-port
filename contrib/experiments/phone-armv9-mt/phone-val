@@ -33,7 +33,7 @@ set -u
 PRIMARY="${VAL_BASE:-https://s.a0x7fff.site/download}"
 ALT="${VAL_ALT:-https://cf.a0x7fff.site/download}"
 DIR="${VAL_DIR:-$HOME/phone-val}"
-MP_MD5="f630c8ac00088d36aa8e54e7e4811500"
+MP_MD5="c82f4fbcf27c2ac0cbb71ba7f8337088"
 MP_SIZE=10126488
 REPORT="$DIR/report.txt"
 
