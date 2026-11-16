@@ -38,6 +38,29 @@ The Termux failure reported earlier (`Hardware error? Point no longer on
 Edwards curve`, ~80% of stage 1 with an 8-thread worker) is the same defect:
 the corrupted FFT makes the elliptic-curve point coordinates invalid.
 
+## Stage 2 is silent, not hung (important)
+
+ECM stage 2 logs almost nothing between "Using XXX MB of memory ... Ftree polys
+in memory" and the curve completion - a run can look frozen for many minutes.
+Sampling `/proc/<pid>/stat` (utime+stime) while a 4-thread ECM test sat on that
+line showed the process CPU time **rising steadily for 6+ minutes** (no stall),
+so it is computing, not deadlocked. A watchdog that only looks at log growth
+will wrongly report a hang. Use CPU-time sampling and wait for
+`completed 1 ECM curve` / `has a factor`.
+
+Status of multithreaded ECM on the phone (fresh directory, 16K FFT):
+
+| threads | behaviour |
+|---|---|
+| 4 | stage 1 completes (~100-130 s), stage 2 starts (polymult helper threads on cores 2-4), long silent CPU-bound stage 2 - no errors, no deadlock observed |
+| 8 | stage 1 completes, then the curve **restarts from 0 %** and logs 2 `Hardware error` lines - suspicious, needs a longer fresh retest before use |
+
+Practical guidance: for farm throughput, several single-threaded workers
+(`CoresPerWorker=1`) are both safer and faster than one multithreaded worker
+(MT gives ~2-3x on 4 threads, while 4 single-thread workers give ~4x);
+multithreading is only attractive for using cores beyond what single-thread
+workers already saturate.
+
 ## Corrections (important - two false conclusions were made and fixed)
 
 1. **The 264,177 "Hardware error" PRP run was an artifact.** The four-phase
