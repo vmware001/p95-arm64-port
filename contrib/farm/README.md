@@ -44,9 +44,8 @@ Self-contained scripts that run **on the device** (no PC required):
   `/data/adb/mprime` → `/data/local/debian64/data/adb/mprime` bind mount; the submit
   script re-asserts it on every run.
 - `submit_once.py` / `topup_once.py` — kept for reference only (old manual-page flow).
-- `submit_apn.ps1` — **workstation fallback** (same AutoPrimeNet submission from a PC;
-  pulls/pushes the results file over ssh). The box-side `apn/` loop is the primary
-  path and needs no PC.
+  There is no workstation-side submit script any more: submission runs exclusively
+  on the box (`apn/` above), so it keeps working with the PC off.
 
 ## Run 4 workers, not 3: Memory must be big enough
 

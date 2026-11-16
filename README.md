@@ -68,7 +68,7 @@ assignment web page; **results are submitted through the PrimeNet v5 API with
 [AutoPrimeNet](https://github.com/tdulcet/AutoPrimeNet)** (Prime95/MPrime
 report-only mode, one small patch) — the `/manual_result/` page is deprecated.
 See [`contrib/primenet/`](contrib/primenet/README.md) for the setup and
-[`contrib/farm/submit_apn.ps1`](contrib/farm/submit_apn.ps1) for the farm hook.
+[`contrib/farm/apn/`](contrib/farm/apn/) for the farm's on-device submit loop.
 
 ## Prebuilt binary
 

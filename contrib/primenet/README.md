@@ -51,10 +51,6 @@ python autoprimenet.py -w /path/to/apn-vm001 -u vm001 --prime95 -T 5 \
 # 2) submit the farm's new results (report-only; idempotent, duplicates -> error 47)
 python autoprimenet.py -w /path/to/apn-vm001 -u vm001 --prime95 \
     -r results.json.txt --report-results
-
-# or from a workstation (fallback; the primary submit loop runs on the box itself,
-# see contrib/farm/apn/ and the "Deployment layout" section of contrib/farm/README.md):
-pwsh contrib/farm/submit_apn.ps1 -ApnDir /path/to/apn-vm001 -ApnScript /path/to/AutoPrimeNet/autoprimenet.py
 ```
 
 On the box the same thing runs unattended: `contrib/farm/apn/apn_loop.sh` calls
@@ -90,8 +86,8 @@ python primenet_manual.py submit --file results.json.txt
 
 One pass: keep the session alive, top up a spool of assignments, and if the
 ARM device is idle push the next assignment to its `worktodo.txt` and start
-`mprime -d`; upload any new `results.json.txt` lines. Designed for cron /
-Task Scheduler, e.g. every 15 minutes:
+`mprime -d`; upload any new `results.json.txt` lines. Designed for cron / a
+shell loop, e.g. every 15 minutes:
 
 ```sh
 export PN_PASS=...
