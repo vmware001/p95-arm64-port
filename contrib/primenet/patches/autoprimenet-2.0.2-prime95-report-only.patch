@@ -1,0 +1,50 @@
+diff --git a/autoprimenet.py b/autoprimenet.py
+index 8f7af6e..f0e8427 100644
+--- a/autoprimenet.py
++++ b/autoprimenet.py
+@@ -3694,7 +3694,7 @@ def check_options(parser, args):
+ 			logging.warning("CPU features has invalid character: %r", res.group())
+ 
+ 	for work_preference in args.work_preference:
+-		if work_preference not in SUPPORTED:
++		if not args.prime95 and work_preference not in SUPPORTED:
+ 			parser.error("Unsupported work preference = {} for {}".format(work_preference, PROGRAM["name"]))
+ 
+ 	if len(args.work_preference) not in {1, args.num_workers}:
+@@ -3735,14 +3735,14 @@ def check_options(parser, args):
+ 		logging.warning("PrMers support is experimental and for testing only. At the time of this release, PrMers was still alpha.")
+ 
+ 	if not (
+-		args.mlucas or args.cudalucas or args.gpuowl or args.prpll or args.prmers or args.mfaktc or args.mfakto or args.primepath
++		args.mlucas or args.cudalucas or args.gpuowl or args.prpll or args.prmers or args.mfaktc or args.mfakto or args.primepath or args.prime95
+ 	):
+ 		parser.error("Must select a GIMPS program to get assignments for")
+ 
+ 	if (
+ 		sum(
+ 			1
+-			for opt in (args.mlucas, args.cudalucas, args.gpuowl, args.prpll, args.prmers, args.mfaktc, args.mfakto, args.primepath)
++			for opt in (args.mlucas, args.cudalucas, args.gpuowl, args.prpll, args.prmers, args.mfaktc, args.mfakto, args.primepath, args.prime95)
+ 			if opt
+ 		)
+ 		!= 1
+@@ -11068,7 +11068,9 @@ if args.debug_info:
+ RE = re.compile(r"[^A-Za-z0-9_@+,./:()<>=! -]")
+ 
+ PROGRAM = PROGRAMS[
+-	8
++	0
++	if args.prime95
++	else 8
+ 	if args.primepath
+ 	else 7
+ 	if args.mfakto
+@@ -11103,6 +11105,8 @@ SUPPORTED = frozenset(
+ 		+ ((PRIMENET_WP.PRP_COFACTOR, PRIMENET_WP.PRP_COFACTOR_DBLCHK) if args.mlucas or args.prmers else ())
+ 	)
+ )
++if args.prime95:
++	SUPPORTED = frozenset(range(1, 200))
+ 
+ 
+ def main():

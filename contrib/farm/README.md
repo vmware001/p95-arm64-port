@@ -16,8 +16,21 @@ Self-contained scripts that run **on the device** (no PC required):
   restart mprime/ddns-go if dead, rotate `run.log` at 50 MB. **Network-free**
   (see "account lockdown" below).
 - `submit_once.py` / `topup_once.py` — kept for reference only. They are
-  *disabled on the box* while the account is flagged; manual browser
-  submission is the only allowed path (../primenet/README.md).
+  *disabled on the box*; PrimeNet submission now goes through the v5 API with
+  **AutoPrimeNet** (the manual results page is deprecated — see
+  `../primenet/README.md`).
+- `submit_apn.ps1` — **run this on the workstation** (it is the one script here
+  that needs the PC: it pulls `results.json.txt` from the box over ssh, submits
+  the new lines with AutoPrimeNet's Prime95/MPrime report-only mode, then
+  removes the handled lines from the box and archives them locally). Example:
+
+  ```powershell
+  # once: see contrib/primenet/README.md for the AutoPrimeNet setup/registration
+  .\contrib\farm\submit_apn.ps1 -ApnDir D:\p95\apn-vm001 -ApnScript D:\p95\AutoPrimeNet\autoprimenet.py
+  ```
+
+  Schedule it (Task Scheduler, every 15-30 min) or run it by hand after a batch
+  of curves. `-DryRun` shows what would be submitted without touching the box.
 
 ## Run 4 workers, not 3: Memory must be big enough
 

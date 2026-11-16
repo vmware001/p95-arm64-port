@@ -7,7 +7,59 @@ PrimeNet web workflow (the same pages a logged-in user uses) instead, which
 gives automatic assignment fetching and result upload without impersonating a
 signed client.
 
+## 2026-11-16: manual results page deprecated — submit through AutoPrimeNet
+
+James Heinrich has asked us to stop using `/manual_result/` for regular
+submission (the page itself now says "This page is now considered legacy and
+should only be used as a last resort... see AutoPrimeNet for automatic work
+management") and to use **AutoPrimeNet** instead. The account's manual results
+access was re-enabled after a short risk-control review; the 18 queued ECM
+results were submitted that way once and are now clear.
+
+The supported path for this port is AutoPrimeNet's hidden **Prime95/MPrime
+report-only mode**, which uses the v5 API with a valid trusted-client signature
+(`ss`/`sh`) and permits results whose `"program"` block says
+`Prime95 31.7 build 2` (an otherwise untrusted version). Verified 2026-11-17:
+a registered AutoPrimeNet instance submitted one of our ECM results and the
+server answered `PrimeNet error 47: Work no longer needed / Duplicate result`
+— i.e. the API accepted the signature and the result format, and a *new*
+result will be credited normally. `pnErrorResult=9` only affects mprime's own
+in-client protocol.
+
+The upstream 2.0.2 release validates the program selection without `--prime95`
+("Must select a GIMPS program to get assignments for"), so apply the tiny patch
+in `patches/autoprimenet-2.0.2-prime95-report-only.patch` first (4 hunks; it
+only re-enables the report-only mode that the README still documents).
+
+```sh
+git clone https://github.com/tdulcet/AutoPrimeNet.git
+cd AutoPrimeNet
+git apply /path/to/p95-arm64-port/contrib/primenet/patches/autoprimenet-2.0.2-prime95-report-only.patch
+python -m pip install requests
+
+# 1) one-time registration as a trusted Prime95 client (CPU info of the farm box)
+mkdir -p /path/to/apn-vm001 && : > /path/to/apn-vm001/worktodo.txt
+python autoprimenet.py -w /path/to/apn-vm001 -u vm001 --prime95 -T 5 \
+    -H arm64-rk3528 --processor-model "Rockchip RK3528 (4x Cortex-A53)" \
+    --processor-features "ARMv8,ASIMD,NEON" --processor-frequency 2016 \
+    --processor-cores 4 --processor-hyperthreads 1 \
+    --processor-l1-size 32 --processor-l2-size 512 \
+    --memory 1979 --max-memory 768 --hours 24 --timeout 0
+
+# 2) submit the farm's new results (report-only; idempotent, duplicates -> error 47)
+python autoprimenet.py -w /path/to/apn-vm001 -u vm001 --prime95 \
+    -r results.json.txt --report-results
+
+# or from the workstation, including the ssh pull/cleanup of the farm file:
+pwsh contrib/farm/submit_apn.ps1 -ApnDir /path/to/apn-vm001 -ApnScript /path/to/AutoPrimeNet/autoprimenet.py
+```
+
+Assignment fetching for mprime still uses the manual assignment page
+(`primenet_manual.py assign` or the web form); only *results* go through the
+API. AutoPrimeNet keeps `results_sent.txt`, so lines are never submitted twice.
+
 ## primenet_manual.py — login / assign / submit
+
 
 ```sh
 export PN_PASS=...            # PrimeNet password; never written to disk

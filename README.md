@@ -62,8 +62,13 @@ cd linux-arm64 && zig c++ -target aarch64-linux-musl -static -s -o mprime \
 | ECM | **fixed** — was broken at ≥16K FFT by the delayed-norm bug; now curve-complete |
 | P-1 | stage 1+2 OK (tiny exponents have a known save-path quirk) |
 
-PrimeNet: source builds are *untrusted* (server policy) — use `contrib/primenet/` for
-assignment/result automation, or run offline.
+PrimeNet: source builds are *untrusted* (server policy), so mprime's own v5
+client is unusable (`pnErrorResult=9`). Assignments still come from the manual
+assignment web page; **results are submitted through the PrimeNet v5 API with
+[AutoPrimeNet](https://github.com/tdulcet/AutoPrimeNet)** (Prime95/MPrime
+report-only mode, one small patch) — the `/manual_result/` page is deprecated.
+See [`contrib/primenet/`](contrib/primenet/README.md) for the setup and
+[`contrib/farm/submit_apn.ps1`](contrib/farm/submit_apn.ps1) for the farm hook.
 
 ## Prebuilt binary
 
