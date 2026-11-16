@@ -4,9 +4,11 @@
 cleanly in a fresh directory (3/3 runs, 8 threads, full tests). An earlier
 264,177-line "Hardware error" burst turned out to be a *test-harness artifact*
 (reusing a work directory that still contained an ECM save file), not a real
-MT defect. 8-thread ECM still hangs at polymult helper-thread setup - that is
-the remaining open question. Until it is settled, production phones should run
-`CoresPerWorker=1`.**
+MT defect.  The real 8-thread ECM corruption was root-caused and FIXED on
+2026-11-17 — see [`../mt-fix/README.md`](../mt-fix/README.md); the fixed binary
+passes 7/7 clean 8-thread ECM stage-1 runs on the phone and completes full ECM
+curves on the box.  `CoresPerWorker=1` is no longer mandatory (though several
+single-thread workers remain the fastest use of the cores).**
 
 ## Device under test
 
@@ -32,7 +34,16 @@ The box for comparison: RK3528, 4x Cortex-A53 @2016 MHz, homogeneous.
 | **ECM M264169, 8 threads (all cores)** | **hangs** at `Setting affinity to run polymult helper thread on CPU core #8` (no progress for 120 s, killed) - still open |
 | 2 workers x 1 thread, ECM M264169 + M279863 | stage 1 clean and fast (M264169: 72,126 bits in ~130 s with two workers running); stage 2 allocates 498 MB per worker and the phone starts swapping (3.9 GB swap used), so stage 2 progress is silent and slow |
 | box, 8-thread PRP M264169, 16K FFT | clean (`Gerbicz error check passed`, no hardware errors) |
-| box, 8-thread ECM M264169 B1=50000 | clean (4 min, 5817 stage-1 iterations, no Edwards/hardware errors) |
+| box, 8-thread ECM M264169 B1=50000 | *correction (2026-11-17): this run never reached the end of stage 1 — it only produced 5,817 exponent-bit progress lines (8.07 %) in 4 min because the 4-worker farm was still running; it was not evidence of MT correctness either way. A valid fixed-binary run later completed a full curve (see `contrib/experiments/mt-fix/`).* |
+
+> **Update 2026-11-17:** the 8-thread corruption is **fixed** — the root cause
+> was un-synchronised `(start_block, carry_in_blocks_finished)` publication in
+> gwnum's pass-1 carry-section state machine that relied on x86-TSO store order;
+> see [`../mt-fix/README.md`](../mt-fix/README.md). With the fixed binary:
+> phone 8-thread ECM stage 1 is 7/7 clean (M264169 5/5, M291143 2/2) and the box
+> completed an entire 8-thread ECM curve with zero errors. The old advice
+> `CoresPerWorker=1` is no longer required (it is still a perfectly reasonable
+> farm shape — single-thread per core remains the fastest use of the cores).
 
 The Termux failure reported earlier (`Hardware error? Point no longer on
 Edwards curve`, ~80% of stage 1 with an 8-thread worker) is the same defect:

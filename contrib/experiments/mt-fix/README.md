@@ -89,8 +89,10 @@ per thread — below measurement noise.
 | x86 differential MT-vs-ST stress harness (`mtstress.c`, 1e6 iters, 8 threads) | PASS before and after (x86-TSO hides the race; useful as a regression gate) |
 | x86 fixed-build regression suite (11 configs: raw 6-op mix, ECM-variant `ed_add/ed_dbl` mix, production-shaped stage-1 chain; threads 1/2/4/8/16/24; spin-wait on/off) | **all PASS, no hangs**; 100k-iteration 16/24-thread chain soaks clean; perf −1.4 %…+0.9 % (noise, <2 % expected mutex cost) |
 | x86 **unfixed** pre-fix soak (~12 M MT multiply-equivalents: raw/op-subset/ECM-mix/chain, threads 2–24, 8 threads pinned to one physical core) | **clean** — ~17 corruption events were statistically expected at 1/700k if x86 could see the race; this is itself evidence that the bug is the ARM64 memory-ordering hole (x86-TSO hides it). ThreadSanitizer was not runnable on the Windows build host (no WSL/Docker/qemu-user); the exact recipe is in `_work/mt/x86/REPORT.md` §8. |
-| RK3528 box (4× A53), **unfixed** binary: 8-thread ECM stage 1 and the MT stress harness at 8/16 threads | did not reproduce in the available time (the box was never previously run to a full 8-thread stage 1; its earlier "clean" claim was only 8 % of a stage — see note below) |
-| RK3528 box, **fixed** binary: 8-thread ECM stage 1, 8/16-thread harness, LL known-answer harness | in progress at time of writing (see `_work` logs; box farm restored afterwards) |
+| RK3528 box (4× A53), **unfixed** binary: 8-thread ECM stage 1 and the MT stress harness at 8/16 threads | did not reproduce in the available time (the box was never previously run to a full 8-thread stage 1; its earlier "clean" claim was only 8 % of a stage — see note below). The box is homogeneous A53, i.e. far less thread-speed skew than the phone, so the race window is much smaller there. |
+| RK3528 box, **fixed** binary, 8-thread ECM M264169 B1=50000 | **PASS** — full curve completed end-to-end: *Stage 1 complete. 1,221,525 transforms … 560.9 s*, *Stage 2 complete. 31,910 transforms … 17.1 s*, `M264169 completed 1 ECM Edwards curve`, 0 Edwards/hardware errors (`box-fixed-8thread-curve-excerpt.txt`); this also retires the old "8-thread ECM hangs at polymult helper threads" observation |
+| RK3528 box, **fixed** binary, LL known-answer harness `gwlltest --threads 8 --extended` | **ALL PASS** — 20 Lucas-Lehmer tests: every known Mersenne prime (127…216091, including 8K/12K FFTs at 8 threads) gives residue 0 and 2047 gives nonzero (`box-gwlltest-8thread-extended.log`) |
+| RK3528 box, fixed binary, MT differential stress harness at 8/16 threads | PASS (also PASSed with the unfixed binary — like on x86 the MT harness is not sensitive enough to reproduce this <2e-6/transform race; it is kept as a regression gate) |
 | static audit of converted kernels (`REPORT-static-audit.md`) | no kernel-side MT defect found; root cause is the `gwnum.c` handshake |
 
 Notes:
@@ -105,6 +107,24 @@ Notes:
   stealing that happens with 8 threads. The mprime ECM reproducer above is the
   reliable one.
 
+
+## Residual risk / follow-up
+
+The fix covers the `(start_block, carry_in_blocks_finished)` publication that the
+race analysis identified. Other fields of the same state machine
+(`section_state`, `next_block`, `last_block`, `carry_out_section`) are still
+plain `int`s and are read by other threads without the change-in-progress lock
+(see S2 in `REPORT-static-audit.md`); upstream explicitly tolerates that layout
+on x86, and 7/7 verified phone runs plus the x86 regression suite show no
+remaining corruption. If any MT anomaly ever reappears, apply the same
+discipline (writes under `thread_lock`/release, reads after acquire) to those
+fields, starting with the splitter's unlocked scan in
+`pass1_state1_assign_first_block` and the `section_state` transitions in
+`pass1_get_next_block_mt`.
+
+Separately, `gw_get_maxerr()` is still neutralised on ARM64 (see `f195b22`) -
+that is a *reported roundoff value* workaround, not an arithmetic change, and is
+unrelated to this bug.
 
 ## Files
 

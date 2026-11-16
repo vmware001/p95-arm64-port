@@ -1,0 +1,37 @@
+gwnum 31.7 Lucas-Lehmer validation harness
+gwnum version: 31.7 (major 31, minor 7)
+options: gwstartnextfft=off, extended=on, threads=8
+CPU: ARMv8 Processor rev 4 (v8l), speed 2016 MHz, 4 cores, 1 hyperthreads
+CPU_FLAGS: 0x00003F2C (no AVX bits -> 128-bit emulated SIMD only)
+
+exponent expected    fftlen maxerr  seconds  residue64          fft description
+-------- ----------- ------ ------- -------- ------------------ ------------------------------
+127      prime       32     0.0000  0.00     0x0000000000000000 Barrett reduction FFT length 32
+521      prime       32     0.0000  0.00     0x0000000000000000 FFT length 32
+607      prime       32     0.0000  0.00     0x0000000000000000 FFT length 32
+1279     prime       64     0.0000  0.00     0x0000000000000000 FFT length 64
+2203     prime       112    0.0000  0.01     0x0000000000000000 FFT length 112
+2281     prime       112    0.0000  0.01     0x0000000000000000 FFT length 112
+3217     prime       160    0.0000  0.02     0x0000000000000000 FFT length 160
+4253     prime       192    0.0000  0.02     0x0000000000000000 FFT length 192
+4423     prime       224    0.0000  0.03     0x0000000000000000 FFT length 224
+9689     prime       448    0.0000  0.13     0x0000000000000000 FFT length 448
+9941     prime       512    0.0000  0.14     0x0000000000000000 FFT length 512
+11213    prime       512    0.0000  0.15     0x0000000000000000 FFT length 512
+
+-- extended: larger known Mersenne primes --
+exponent expected    fftlen maxerr  seconds  residue64          fft description
+-------- ----------- ------ ------- -------- ------------------ ------------------------------
+21701    prime       1024   0.0000  0.70     0x0000000000000000 FFT length 1K
+23209    prime       1280   0.0000  1.01     0x0000000000000000 FFT length 1280
+44497    prime       2560   0.0000  4.46     0x0000000000000000 FFT length 2560
+86243    prime       4096   0.0000  14.22    0x0000000000000000 FFT length 4K
+110503   prime       6144   0.0000  29.90    0x0000000000000000 FFT length 6K
+132049   prime       8192   0.0000  100.63   0x0000000000000000 type-1 FFT length 8K, Pass1=32, Pass2=256, clm=4, 8 threads
+216091   prime       12288  0.0000  210.49   0x0000000000000000 type-0 FFT length 12K, Pass1=48, Pass2=256, clm=4, 8 threads
+
+-- composite sanity check --
+2047     composite   96     0.0000  0.00     0x8F4A38695034C7E4 FFT length 96
+
+Ran 20 Lucas-Lehmer tests: ALL PASS
+RESULT: PASS - every known Mersenne prime gave LL residue 0, 2047 gave nonzero
