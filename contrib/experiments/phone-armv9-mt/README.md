@@ -1,10 +1,12 @@
 # contrib/experiments/phone-armv9-mt — multithreaded FFT on a heterogeneous ARM phone
 
-**Verdict: on the Dimensity 9400 phone the *multithreaded* gwnum FFT path
-corrupts results ("Hardware error", Gerbicz mismatch) while the exact same
-binary is clean single-threaded and is clean multithreaded on the homogeneous
-RK3528 (4x Cortex-A53) box. Practical rule until this is fixed: run
-`CoresPerWorker=1` (single-threaded workers) on heterogeneous phones.**
+**Status: single-thread is proven exact and fast; multithreaded PRP completes
+cleanly in a fresh directory (3/3 runs, 8 threads, full tests). An earlier
+264,177-line "Hardware error" burst turned out to be a *test-harness artifact*
+(reusing a work directory that still contained an ECM save file), not a real
+MT defect. 8-thread ECM still hangs at polymult helper-thread setup - that is
+the remaining open question. Until it is settled, production phones should run
+`CoresPerWorker=1`.**
 
 ## Device under test
 
@@ -24,8 +26,10 @@ The box for comparison: RK3528, 4x Cortex-A53 @2016 MHz, homogeneous.
 |---|---|
 | PRP M11213 + M1277, 1 thread pinned to CPU7 | `probable prime` / `not prime` correct, Gerbicz 4/4 pass, 0 errors |
 | **ECM M264169 B1=50000, 1 thread pinned to CPU7** | stage 1 **complete**: 72,126 exponent bits in **~108 s**, 0 errors, then stage 2 (`125 MB, D=1050`) |
-| **PRP M264169, 8 threads (all cores)** | **`Hardware error` x264,177** (about once per iteration) and results.txt: `ERROR: Comparing Gerbicz checksum values failed. Rolling back to iteration 0.` |
-| **ECM M264169, 8 threads (all cores)** | **hangs** at `Setting affinity to run polymult helper thread on CPU core #8` (no progress for 120 s, killed) |
+| **PRP M264169, 8 threads (all cores), fresh dir, run to completion** | **clean, 3/3 runs**: completes in ~60 s, `Hardware error` x0, `Gerbicz error check passed` x2 |
+| same, restricted to the A725 cluster (mask `0f`) | clean, completes in ~60 s |
+| PRP 8 threads in a directory that still held an ECM save file | **`Hardware error` x264,177** and `ERROR: Comparing Gerbicz checksum values failed. Rolling back to iteration 0.` — **artifact of the reused directory** (see "Corrections" below) |
+| **ECM M264169, 8 threads (all cores)** | **hangs** at `Setting affinity to run polymult helper thread on CPU core #8` (no progress for 120 s, killed) - still open |
 | 2 workers x 1 thread, ECM M264169 + M279863 | stage 1 clean and fast (M264169: 72,126 bits in ~130 s with two workers running); stage 2 allocates 498 MB per worker and the phone starts swapping (3.9 GB swap used), so stage 2 progress is silent and slow |
 | box, 8-thread PRP M264169, 16K FFT | clean (`Gerbicz error check passed`, no hardware errors) |
 | box, 8-thread ECM M264169 B1=50000 | clean (4 min, 5817 stage-1 iterations, no Edwards/hardware errors) |
@@ -33,6 +37,20 @@ The box for comparison: RK3528, 4x Cortex-A53 @2016 MHz, homogeneous.
 The Termux failure reported earlier (`Hardware error? Point no longer on
 Edwards curve`, ~80% of stage 1 with an 8-thread worker) is the same defect:
 the corrupted FFT makes the elliptic-curve point coordinates invalid.
+
+## Corrections (important - two false conclusions were made and fixed)
+
+1. **The 264,177 "Hardware error" PRP run was an artifact.** The four-phase
+   test driver ran all phases in one directory and only deleted `*.bu` backups,
+   but ECM save files are named `e<exp-hex>` *without* an extension. The PRP
+   phase for the same exponent then found that stale file and produced garbage,
+   which mprime reported as "Hardware errors!" plus a Gerbicz rollback loop.
+   Re-running the same 8-thread PRP in a **fresh** directory: clean 3/3.
+   Lesson: one fresh directory per test/phases, and match save files by the
+   `e*` prefix, not by extension.
+2. **The `Edwards curve` failures seen earlier in Termux were not analysed with
+   a clean directory / current binary either** - they need a fresh reproduction
+   before being blamed on multithreading.
 
 ## What this points at
 
