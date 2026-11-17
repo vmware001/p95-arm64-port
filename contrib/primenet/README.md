@@ -30,8 +30,10 @@ The upstream 2.0.2 release validates the program selection without `--prime95`
 ("Must select a GIMPS program to get assignments for"), so apply the tiny patch
 in `patches/autoprimenet-2.0.2-prime95-report-only.patch` first (4 hunks; it
 only re-enables the report-only mode that the README still documents). Reported
-upstream as <https://github.com/tdulcet/AutoPrimeNet/issues/48> in case a future
-release fixes it and the local patch can be dropped.
+upstream as <https://github.com/tdulcet/AutoPrimeNet/issues/48> and fixed on the
+upstream `dev` branch by <https://github.com/tdulcet/AutoPrimeNet/pull/49>
+(`--prime95` on its own selects the Prime95/MPrime program); once a release
+contains it the local patch can be dropped.
 
 ```sh
 git clone https://github.com/tdulcet/AutoPrimeNet.git
