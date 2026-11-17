@@ -31,9 +31,14 @@ The upstream 2.0.2 release validates the program selection without `--prime95`
 in `patches/autoprimenet-2.0.2-prime95-report-only.patch` first (4 hunks; it
 only re-enables the report-only mode that the README still documents). Reported
 upstream as <https://github.com/tdulcet/AutoPrimeNet/issues/48> and fixed on the
-upstream `dev` branch by <https://github.com/tdulcet/AutoPrimeNet/pull/49>
-(`--prime95` on its own selects the Prime95/MPrime program); once a release
-contains it the local patch can be dropped.
+upstream `dev` branch by <https://github.com/tdulcet/AutoPrimeNet/pull/49>.
+Following tdulcet's review the PR was reworked (2026-11-17): the hidden
+`--prime95` secure-state option is renamed to `--trusted`, and the documented
+`--prime95` profile gets assignments *and* reports results with the untrusted
+security parameters (PrimeNet rejects the reimplemented trusted-client signature
+on assignment requests with `error 9`). Once a release with that design is out,
+the first two local patches can be replaced by the new option; the ECM keep-open
+patch is still needed (see issue #50).
 
 ### Fetching assignments needs the untrusted mode
 
