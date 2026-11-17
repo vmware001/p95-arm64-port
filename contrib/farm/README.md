@@ -23,7 +23,7 @@ Self-contained scripts that run **on the device** (no PC required):
     Uses the trusted-client report-only mode (server accepts the signature for
     result reporting);
   * `fetch_assignments.sh` — when the farm worktodo drops below `MIN_TASKS`
-    (default 100 task lines), asks AutoPrimeNet for ECM assignments in the
+    (default 16 task lines = about two days of work at the observed ~8 ECM curves/day), asks AutoPrimeNet for ECM assignments in the
     normal security state, using the Prime95/MPrime program identity with the
     **untrusted** (dummy) security parameters (`--prime95 --untrusted`; the
     reimplemented trusted-client signature is rejected by PrimeNet on `ga`
