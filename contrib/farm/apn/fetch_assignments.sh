@@ -10,6 +10,10 @@
 # submitted separately by submit_apn.sh (trusted-client report-only mode, proven
 # to work), keyed by the assignment IDs that mprime keeps in the worktodo lines.
 #
+# Exponents stay below 131072 so mprime uses the small 5K/8K FFTs: measured on
+# the box, a 5K-FFT curve runs at ~224 stage-1 bits/s per worker vs ~90 bits/s
+# for the 12K/16K FFT curves (4 workers), i.e. the same work per hour with less
+# memory pressure.  See the work-type experiment notes in README.md.
 # Environment overrides: MIN_TASKS (default 16 = ~2 days of work), FETCH_N (2), EXP_LO/HI.
 MP=/data/adb/mprime
 APN=$MP/apn
@@ -20,7 +24,7 @@ LOG=$APN/fetch.log
 MIN_TASKS=${MIN_TASKS:-16}
 FETCH_N=${FETCH_N:-2}
 EXP_LO=${EXP_LO:-100000}
-EXP_HI=${EXP_HI:-400000}
+EXP_HI=${EXP_HI:-131072}
 log() { echo "$(date '+%F %T') $*" >> "$LOG"; }
 
 # 1) make sure the arm64 chroot and the /data/adb/mprime bind mount exist

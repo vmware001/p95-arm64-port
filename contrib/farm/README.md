@@ -104,6 +104,23 @@ Queue policy: keep the spool small — `fetch_assignments.sh` only tops up below
 (two assignments), i.e. a few days of work at the observed rate, safely inside
 the 14-day assignment ETA.
 
+### Work-type experiments (2026-11-17)
+
+Goal: find work that yields more credit per hour on the 4x Cortex-A53 box.
+GIMPS credit is roughly proportional to the work done, so no work type can
+change the FLOP-limited rate much; the measurements confirmed that:
+
+| experiment | result |
+|---|---|
+| small-exponent ECM (`--min-exp 100000 --max-exp 131072`) | works: assignments on M104717-M106727 with B1≈5.5-5.7M, **5K/8K FFT**; 4 workers reach ~224 stage-1 bits/s/worker vs ~90 bits/s/worker with the 12K/16K FFT assignments, but the curves have ~2.9x higher B1, so credit/hour is the same (±10%). Kept: one 50-curve assignment (M104831, FFT 5K). |
+| PRP on Mersenne cofactors (work preference 160) | the server accepted the `t=po` preference but answered `t=ga` with ordinary ECM assignments, i.e. it does not hand out PRP-cofactor work to this (untrusted Prime95 v30.19 client) identity; not usable for automation. |
+| one worker with `CoresPerWorker=4` (multithreaded single curve, the MT fix path) | a single curve reached ~400 stage-1 bits/s while four independent workers aggregate ~900 bits/s, so the current `NumWorkers=4, CoresPerWorker=1` layout is the faster one. |
+
+Conclusion: keep four single-thread workers; the queue is now one 50-curve
+small-exponent assignment (25 curves per worker, roughly 7 days at ~13 h per
+curve), which leaves a comfortable margin inside the 14-day ETA. The two 16K
+FFT assignments and the extra small-exponent assignment were unreserved.
+
 - `submit_once.py` / `topup_once.py` — kept for reference only (old manual-page flow).
   There is no workstation-side submit script any more: submission runs exclusively
   on the box (`apn/` above), so it keeps working with the PC off.
