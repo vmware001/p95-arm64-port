@@ -10,14 +10,14 @@
 # submitted separately by submit_apn.sh (trusted-client report-only mode, proven
 # to work), keyed by the assignment IDs that mprime keeps in the worktodo lines.
 #
-# Environment overrides: MIN_TASKS (default 100), FETCH_N (2), EXP_LO/HI.
+# Environment overrides: MIN_TASKS (default 16 = ~2 days of work), FETCH_N (2), EXP_LO/HI.
 MP=/data/adb/mprime
 APN=$MP/apn
 POOL=$APN/pool
 FARM=$MP/farm1
 D=/data/local/debian64
 LOG=$APN/fetch.log
-MIN_TASKS=${MIN_TASKS:-100}
+MIN_TASKS=${MIN_TASKS:-16}
 FETCH_N=${FETCH_N:-2}
 EXP_LO=${EXP_LO:-100000}
 EXP_HI=${EXP_HI:-400000}
