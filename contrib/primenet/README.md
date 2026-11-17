@@ -58,6 +58,17 @@ python3 autoprimenet.py -w POOL -u USER --prime95 --untrusted -T 5 -n 2 -t 0 \
     --min-exp 100000 --max-exp 400000 -r results.json.txt --no-version-check             # fetch work
 ```
 
+### Multi-curve ECM assignments: keep them open
+
+An ECM assignment asks for many curves (`CR`, typically 50-72), while mprime
+reports one result per curve. The stock 2.0.2 report code always sends `d=1`
+for ECM results, so PrimeNet closes the assignment after the first curve and
+every remaining curve is rejected with
+`PrimeNet error 43: Invalid assignment key`. Apply the third patch
+`patches/autoprimenet-2.0.2-ecm-keep-open.patch` (it sends `d=0` while another
+worktodo line of the same assignment is queued and `d=1` for the last curve) so
+a batch of single-curve worktodo lines can all be credited.
+
 ```sh
 git clone https://github.com/tdulcet/AutoPrimeNet.git
 cd AutoPrimeNet

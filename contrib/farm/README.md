@@ -73,9 +73,36 @@ service gimpsfarm /system/bin/sh /data/adb/mprime/farm_watchdog.sh
 Verified with two cold reboots (2026-11-17): within ~15 s of boot `init.svc.gimpsfarm`
 and `init.svc.dropbear` are `running`, the watchdog has restarted ddns-go,
 `apn_loop.sh` and mprime, and the first AutoPrimeNet cycle logs
-`no new results` (submit) and `farm has 439 task lines (>= 100), no fetch needed`
+`no new results` (submit) and `farm has N task lines, no fetch needed` (the threshold is now 16)
 (fetch). One reboot also verified the `worktodo.add` merge: 150 fetched curves were
 folded into `worktodo.txt` (450 task lines) by mprime itself.
+
+### ECM assignments are multi-curve — keep them open
+
+A PrimeNet ECM assignment asks for many curves (CR, typically 50-72). mprime
+reports **one result per curve**, so the report must send `d=0` while other
+curves of the same assignment are still queued and `d=1` only for the last
+curve. The stock AutoPrimeNet 2.0.2 code always sends `d=1` for ECM results, so
+PrimeNet closes the assignment when the first curve is reported and every
+remaining curve comes back as `PrimeNet error 43: Invalid assignment key`
+(observed as `au: no such assignment key` for the heavy assignments). The local
+patch `../primenet/patches/autoprimenet-2.0.2-ecm-keep-open.patch` fixes the
+`d` flag (factor results still close the assignment).
+
+Consequence for the box (2026-11-17): the four old assignments had already been
+closed that way after their first reported curve (M264169, M279863, M7831391,
+M10032203), so their ~289 remaining single-curve lines could never be credited
+and were dropped. The queue was rebuilt with
+`tools/rebalance_worktodo.py` to the two freshly fetched 16K-FFT ECM
+assignments (50 curves each, 25 curves per worker); the third fresh assignment
+(M289717) was unreserved so the server can hand it out again. After the
+rebalance all four workers run the fresh 16K-FFT assignments
+(`M244813 curve 1 stage 1 …`), about 1.5-2.5 h per curve per core.
+
+Queue policy: keep the spool small — `fetch_assignments.sh` only tops up below
+`MIN_TASKS` (default 16 task lines) and `FETCH_N=2` then adds ~100 curves
+(two assignments), i.e. a few days of work at the observed rate, safely inside
+the 14-day assignment ETA.
 
 - `submit_once.py` / `topup_once.py` — kept for reference only (old manual-page flow).
   There is no workstation-side submit script any more: submission runs exclusively
