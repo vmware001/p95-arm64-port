@@ -4,45 +4,79 @@ Self-contained scripts that run **on the device** (no PC required):
 
 - `boot.sh` — boot entry point (idempotent): performance governors (CPU +
   DDR), bind-mounts the farm dir into the debian chroot, starts ddns-go,
-  mprime daemon, and the watchdog. Install as an init service via
-  `/system/etc/init/farm.rc`:
-  ```
-  service gimpsfarm /system/bin/sh /data/adb/mprime/farm_watchdog.sh
-      class main
-      user root
-      group root
-  ```
+  mprime daemon, and the watchdog.
 - `farm_watchdog.sh` — forever loop (10 min cycle): re-assert governors,
-  restart mprime/ddns-go if dead, rotate `run.log` at 50 MB. **Network-free**
-  (see "account lockdown" below).
-- `apn/` — **PrimeNet result submission runs on the box itself** (AutoPrimeNet,
-  PrimeNet v5 API, report-only):
-  * `apn_loop.sh` — every 30 min calls `submit_apn.sh`; started by `boot.sh`
-    (step 6) and restarted by `farm_watchdog.sh` if it dies;
+  restart ddns-go / the AutoPrimeNet loop / mprime if dead, rotate `run.log` at
+  50 MB. A singleton lock (`/data/adb/mprime/.watchdog.lock`) keeps exactly one
+  copy active: the box's init has been seen to start several copies of the
+  service at boot, the extra copies wait and take over if the active one dies.
+- `apn/` — **full PrimeNet automation runs on the box itself** (AutoPrimeNet,
+  PrimeNet v5 API), in both directions:
+  * `apn_loop.sh` — every 30 min calls `submit_apn.sh` and
+    `fetch_assignments.sh`; started by `farm_watchdog.sh` and restarted by it
+    if it dies (so it comes back automatically after a reboot);
   * `submit_apn.sh` — snapshots `farm1/results.json.txt` into the AutoPrimeNet
     workdir, submits the new lines inside the arm64 Debian chroot
     (`/data/local/debian64`, Python 3.11 + `python3-requests`) and then runs
     `trim_results.py`, which moves the handled lines to
-    `farm1/results.submitted.json.txt` and keeps the rest for the next attempt;
-  * logs: `/data/adb/mprime/apn/{loop,submit,autoprimenet}.log`.
+    `farm1/results.submitted.json.txt` and keeps the rest for the next attempt.
+    Uses the trusted-client report-only mode (server accepts the signature for
+    result reporting);
+  * `fetch_assignments.sh` — when the farm worktodo drops below `MIN_TASKS`
+    (default 100 task lines), asks AutoPrimeNet for ECM assignments in the
+    normal security state, using the Prime95/MPrime program identity with the
+    **untrusted** (dummy) security parameters (`--prime95 --untrusted`; the
+    reimplemented trusted-client signature is rejected by PrimeNet on `ga`
+    requests, see `../primenet/README.md`), restricted to exponents
+    `EXP_LO`-`EXP_HI` (100k-400k by default, i.e. the cheap 16K-FFT ECM work);
+  * `merge_fetch.py` — splits each fetched assignment into single-curve worktodo
+    lines (50 curves -> 50 lines, so the four workers can share it) and appends
+    them to `farm1/worktodo.add`, always filling the least-loaded worker first.
+    mprime merges `worktodo.add` into `worktodo.txt` on its next save timer
+    (<= 10-30 min) and picks the new lines up without a restart;
+  * logs: `/data/adb/mprime/apn/{loop,submit,fetch,autoprimenet}.log`.
 
   Deployment layout on the box (registration details in `../primenet/README.md`):
 
   ```
   /data/adb/mprime/apn/autoprimenet.py   patched AutoPrimeNet 2.0.2
-                                         (../primenet/patches/autoprimenet-2.0.2-prime95-report-only.patch)
+                                         (../primenet/patches/autoprimenet-2.0.2-*.patch)
   /data/adb/mprime/apn/prime.ini         registration: ComputerGUID + CPU info
                                          (created by the one-time registration command)
-  /data/adb/mprime/apn/results_sent.txt  AutoPrimeNet's ledger of handled lines
-  /data/adb/mprime/apn/{submit_apn.sh,apn_loop.sh,trim_results.py}
-  /data/adb/mprime/farm1/results.json.txt             mprime result spool (trimmed after submission)
+  /data/adb/mprime/apn/results_sent.txt  AutoPrimeNet's ledger of handled result lines
+  /data/adb/mprime/apn/pool/             AutoPrimeNet workdir for assignment fetching
+  /data/adb/mprime/apn/{submit_apn.sh,fetch_assignments.sh,apn_loop.sh,trim_results.py,merge_fetch.py}
+  /data/adb/mprime/farm1/worktodo.txt            mprime work spool (single curve per line)
+  /data/adb/mprime/farm1/worktodo.add            new assignments from fetch_assignments.sh
+  /data/adb/mprime/farm1/results.json.txt        mprime result spool (trimmed after submission)
   /data/adb/mprime/farm1/results.submitted.json.txt   archive of everything handled
   ```
 
   The arm64 chroot needs `python3-requests` once:
-  `debian64.sh /usr/bin/apt-get install -y python3-requests`. `boot.sh` sets up the
-  `/data/adb/mprime` → `/data/local/debian64/data/adb/mprime` bind mount; the submit
-  script re-asserts it on every run.
+  `debian64.sh /usr/bin/apt-get install -y python3-requests`. The submit/fetch
+  scripts re-assert the `/data/adb/mprime` → `/data/local/debian64/data/adb/mprime`
+  bind mount on every run.
+
+### Boot autostart
+
+`/system/etc/init/farm.rc` runs the watchdog as an init service
+(`class main`, root), the watchdog starts ddns-go, `apn/apn_loop.sh` and mprime
+in its first loop:
+
+```
+service gimpsfarm /system/bin/sh /data/adb/mprime/farm_watchdog.sh
+    class main
+    user root
+    group root
+```
+
+Verified with two cold reboots (2026-11-17): within ~15 s of boot `init.svc.gimpsfarm`
+and `init.svc.dropbear` are `running`, the watchdog has restarted ddns-go,
+`apn_loop.sh` and mprime, and the first AutoPrimeNet cycle logs
+`no new results` (submit) and `farm has 439 task lines (>= 100), no fetch needed`
+(fetch). One reboot also verified the `worktodo.add` merge: 150 fetched curves were
+folded into `worktodo.txt` (450 task lines) by mprime itself.
+
 - `submit_once.py` / `topup_once.py` — kept for reference only (old manual-page flow).
   There is no workstation-side submit script any more: submission runs exclusively
   on the box (`apn/` above), so it keeps working with the PC off.

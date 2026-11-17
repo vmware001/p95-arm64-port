@@ -35,6 +35,29 @@ upstream `dev` branch by <https://github.com/tdulcet/AutoPrimeNet/pull/49>
 (`--prime95` on its own selects the Prime95/MPrime program); once a release
 contains it the local patch can be dropped.
 
+### Fetching assignments needs the untrusted mode
+
+The reimplemented trusted-client signature is accepted for result reporting
+(`t=ar`), but PrimeNet rejects it on assignment requests (`t=ga`) with
+`PrimeNet error 9: Access denied / Invalid security signature`.  Untrusted
+clients, however, may fetch work, report progress and submit results during the
+normal server security state, so apply the second patch
+`patches/autoprimenet-2.0.2-untrusted-fetch.patch` and pass the hidden
+`--untrusted` option together with `--prime95`: AutoPrimeNet then keeps the
+Prime95/MPrime program identity but sends the dummy security parameters
+(`ss=19191919`, `sh=ABCD…`).  Verified against the live server: `ga` returns
+`PrimeNet success code … Server assigned ECM work` and the assignments are
+written as Prime95-style `ECM2=` lines, which our ported mprime understands.
+
+Registration (once, trusted identity is fine) and the two modes:
+
+```sh
+python3 autoprimenet.py -w APN -u USER --prime95 --setup
+python3 autoprimenet.py -w APN -u USER --prime95 -r results.json.txt --report-results     # upload results
+python3 autoprimenet.py -w POOL -u USER --prime95 --untrusted -T 5 -n 2 -t 0 \
+    --min-exp 100000 --max-exp 400000 -r results.json.txt --no-version-check             # fetch work
+```
+
 ```sh
 git clone https://github.com/tdulcet/AutoPrimeNet.git
 cd AutoPrimeNet

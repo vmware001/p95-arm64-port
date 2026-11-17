@@ -63,12 +63,17 @@ cd linux-arm64 && zig c++ -target aarch64-linux-musl -static -s -o mprime \
 | P-1 | stage 1+2 OK (tiny exponents have a known save-path quirk) |
 
 PrimeNet: source builds are *untrusted* (server policy), so mprime's own v5
-client is unusable (`pnErrorResult=9`). Assignments still come from the manual
-assignment web page; **results are submitted through the PrimeNet v5 API with
-[AutoPrimeNet](https://github.com/tdulcet/AutoPrimeNet)** (Prime95/MPrime
-report-only mode, one small patch) — the `/manual_result/` page is deprecated.
-See [`contrib/primenet/`](contrib/primenet/README.md) for the setup and
-[`contrib/farm/apn/`](contrib/farm/apn/) for the farm's on-device submit loop.
+client is unusable (`pnErrorResult=9`). Both directions are now automated with
+[AutoPrimeNet](https://github.com/tdulcet/AutoPrimeNet) using the PrimeNet v5
+API: **results** are submitted in the Prime95/MPrime report-only mode (trusted
+client, accepted by the server), and **assignments** are fetched with the
+Prime95/MPrime identity in the untrusted mode (`--prime95 --untrusted`, dummy
+security parameters — the server rejects the reimplemented trusted signature on
+`ga` requests); the fetched `ECM2=` assignments are merged into mprime's
+`worktodo.add`. The `/manual_result/` page is deprecated and no longer used.
+Everything runs on the device, supervised across reboots by an init service.
+See [`contrib/primenet/`](contrib/primenet/README.md) for the setup/patch and
+[`contrib/farm/apn/`](contrib/farm/apn/) for the on-device loop.
 
 ## Prebuilt binary
 

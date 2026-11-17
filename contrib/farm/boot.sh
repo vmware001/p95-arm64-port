@@ -20,7 +20,7 @@ if ! mount | grep -q '/data/local/debian/data/adb/mprime '; then
 fi
 
 # 3) ddns-go (otherwise the DDNS record goes stale on next ISP re-dial)
-if ! pgrep -f '/data/local/ddns-go/ddns-go' >/dev/null 2>&1; then
+if ! pgrep -x ddns-go >/dev/null 2>&1; then
     (cd /data/local/ddns-go && nohup /data/local/ddns-go/ddns-go >/dev/null 2>&1 &)
 fi
 

@@ -1,0 +1,40 @@
+Local patch for AutoPrimeNet 2.0.2 (apply AFTER
+autoprimenet-2.0.2-prime95-report-only.patch).
+
+Adds a hidden --untrusted option: when given together with --prime95 it keeps
+the Prime95/MPrime program identity but sends the untrusted (dummy) PrimeNet
+security parameters (ss=19191919, sh=ABCD...).  Reason: the reimplemented
+trusted-client signature is accepted for report-only transactions, but PrimeNet
+rejects it for 'ga' (get assignment) requests with
+
+    PrimeNet error 9: Access denied / Invalid security signature
+
+while untrusted clients may fetch assignments, report progress and submit
+results while the server is in the normal security state.  This is what
+contrib/farm/apn/fetch_assignments.sh uses to top up the farm worktodo.
+
+--- a/autoprimenet.py
++++ b/autoprimenet.py
+@@ -5150,7 +5150,13 @@
+ def send_request(args, adapter, guid, params):
+ 	"""Send a PrimeNet v5 request and return its parsed response."""
+ 	if guid is not None:
+-		if not args.prime95:
++		# --untrusted forces the untrusted (dummy) security parameters even when
++		# --prime95 is given.  The reimplemented trusted-client signature is
++		# rejected by PrimeNet on 'ga' (get assignment) requests with
++		# "PrimeNet error 9: Invalid security signature", while untrusted clients
++		# may fetch work, report progress and submit results normally while the
++		# server is in its normal security state.
++		if not args.prime95 or args.untrusted:
+ 			params["ss"] = 19191919
+ 			params["sh"] = "ABCDABCDABCDABCDABCDABCDABCDABCD"
+ 		else:
+@@ -10596,6 +10602,7 @@
+ 	help="Get assignments for PrimePath. This is experimental and for testing only.",
+ )
+ parser.add_argument("--prime95", action="store_true", help=argparse.SUPPRESS)
++parser.add_argument("--untrusted", action="store_true", help=argparse.SUPPRESS)
+ parser.add_argument("--num-workers", type=int, default=1, help="Number of workers (CPU Cores/GPUs), Default: %(default)r")
+ parser.add_argument(
+ 	"-n",
