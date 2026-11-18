@@ -36,9 +36,11 @@ Following tdulcet's review the PR was reworked (2026-11-17): the hidden
 `--prime95` secure-state option is renamed to `--trusted`, and the documented
 `--prime95` profile gets assignments *and* reports results with the untrusted
 security parameters (PrimeNet rejects the reimplemented trusted-client signature
-on assignment requests with `error 9`). Once a release with that design is out,
-the first two local patches can be replaced by the new option; the ECM keep-open
-patch is still needed (see issue #50).
+on assignment requests with `error 9`; repro and `--debug` output posted in the
+PR). Once a release with that design is out, the first two local patches can be
+replaced by the new option. The ECM keep-open patch was merged upstream as
+<https://github.com/tdulcet/AutoPrimeNet/pull/51> (dev, 2026-11-17, commit
+`94ad6bd`), so it can be dropped from the next upstream release as well.
 
 ### Fetching assignments needs the untrusted mode
 
