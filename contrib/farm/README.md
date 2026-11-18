@@ -77,6 +77,14 @@ and `init.svc.dropbear` are `running`, the watchdog has restarted ddns-go,
 (fetch). One reboot also verified the `worktodo.add` merge: 150 fetched curves were
 folded into `worktodo.txt` (450 task lines) by mprime itself.
 
+ddns-go must be started through `/data/local/linux-env/ddns-go-ctl.sh start`
+(the watchdog and `boot.sh` do that): it passes `-c config.yaml -f 300 -dns
+223.5.5.5` and appends to `ddns-go.log`. A bare `./ddns-go` starts without the
+config file, keeps running but never updates a record — on 2026-11-18 the ISP
+re-delegated the IPv6 prefix while ddns-go had been restarted that way, so the
+AAAA record stayed on the old prefix and the box became unreachable by name
+until ddns-go was restarted through the ctl script.
+
 ### ECM assignments are multi-curve — keep them open
 
 A PrimeNet ECM assignment asks for many curves (CR, typically 50-72). mprime
@@ -102,9 +110,10 @@ rebalance all four workers run the fresh 16K-FFT assignments
 Queue policy: keep the spool small — `fetch_assignments.sh` only tops up below
 `MIN_TASKS` (default 16 task lines) and `FETCH_N=2` then adds ~100 curves
 (two assignments), i.e. a few days of work at the observed rate, safely inside
-the 14-day assignment ETA.
+the 14-day assignment ETA. Exponents are fetched in the 200000-400000 range
+(12K/16K FFT) because of the stage-2 memory limit described below.
 
-### Work-type experiments (2026-11-17)
+### Work-type experiments (2026-11-17/18)
 
 Goal: find work that yields more credit per hour on the 4x Cortex-A53 box.
 GIMPS credit is roughly proportional to the work done, so no work type can
@@ -112,14 +121,13 @@ change the FLOP-limited rate much; the measurements confirmed that:
 
 | experiment | result |
 |---|---|
-| small-exponent ECM (`--min-exp 100000 --max-exp 131072`) | works: assignments on M104717-M106727 with B1≈5.5-5.7M, **5K/8K FFT**; 4 workers reach ~224 stage-1 bits/s/worker vs ~90 bits/s/worker with the 12K/16K FFT assignments, but the curves have ~2.9x higher B1, so credit/hour is the same (±10%). Kept: one 50-curve assignment (M104831, FFT 5K). |
+| small-exponent ECM (`--min-exp 100000 --max-exp 131072`) | assigns curves with B1≈5.5-5.7M on **5K/8K FFTs**, ~224 stage-1 bits/s/worker vs ~90 bits/s/worker for the 12K/16K work, i.e. about the same credit/hour. **Unusable on this box:** stage 2 allocates ~1.5 GB per worker (`Using 1496MB of memory. D: 51870` in the run log), so mprime answers `Looking for work that uses less memory`, abandons the curve after a whole stage 1 and goes idle. On 2026-11-18 all four workers finished stage 1 of such curves at 02:45-02:56 and then sat idle for ~8 h; those assignments were unreserved. |
+| 200k-400k ECM (`--min-exp 200000 --max-exp 400000`) | 12K/16K FFT, B1≈1-2M; stage 2 needs only ~60-560 MB (measured over many curves), so the four workers can serialise stage 2 inside `Memory=768` and finish curves. This is the queue range now. |
 | PRP on Mersenne cofactors (work preference 160) | the server accepted the `t=po` preference but answered `t=ga` with ordinary ECM assignments, i.e. it does not hand out PRP-cofactor work to this (untrusted Prime95 v30.19 client) identity; not usable for automation. |
 | one worker with `CoresPerWorker=4` (multithreaded single curve, the MT fix path) | a single curve reached ~400 stage-1 bits/s while four independent workers aggregate ~900 bits/s, so the current `NumWorkers=4, CoresPerWorker=1` layout is the faster one. |
 
-Conclusion: keep four single-thread workers; the queue is now one 50-curve
-small-exponent assignment (25 curves per worker, roughly 7 days at ~13 h per
-curve), which leaves a comfortable margin inside the 14-day ETA. The two 16K
-FFT assignments and the extra small-exponent assignment were unreserved.
+Conclusion: keep four single-thread workers and the 12K/16K FFT exponent range;
+one small-exponent assignment cannot be completed on a 2 GB box at all.
 
 - `submit_once.py` / `topup_once.py` — kept for reference only (old manual-page flow).
   There is no workstation-side submit script any more: submission runs exclusively

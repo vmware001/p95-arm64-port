@@ -19,9 +19,12 @@ if ! mount | grep -q '/data/local/debian/data/adb/mprime '; then
         /bin/busybox mount -o bind /data/adb/mprime /data/local/debian/data/adb/mprime 2>/dev/null
 fi
 
-# 3) ddns-go (otherwise the DDNS record goes stale on next ISP re-dial)
+# 3) ddns-go (otherwise the DDNS record goes stale on next ISP re-dial).
+#    Use the ctl script: it passes "-c config.yaml -f 300 -dns 223.5.5.5" and
+#    logs to ddns-go.log; a plain "./ddns-go" starts without a config file and
+#    never updates any record (this happened on 2026-11-18).
 if ! pgrep -x ddns-go >/dev/null 2>&1; then
-    (cd /data/local/ddns-go && nohup /data/local/ddns-go/ddns-go >/dev/null 2>&1 &)
+    /data/local/linux-env/ddns-go-ctl.sh start
 fi
 
 # 4) mprime farm daemon

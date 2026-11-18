@@ -49,9 +49,12 @@ while true; do
 
     # --- ddns-go first, so the workstation can reach this box again as soon as
     #     possible after a reboot (only ddns-go is needed for remote access) ---
+    #     Always start it through the ctl script: it passes "-c config.yaml
+    #     -f 300 -dns 223.5.5.5" and logs to ddns-go.log.  A plain "./ddns-go"
+    #     starts without a config file and then never updates any record.
     if ! pgrep -x ddns-go >/dev/null 2>&1; then
         log "ddns-go down; restarting"
-        (cd /data/local/ddns-go && nohup ./ddns-go >/dev/null 2>&1 &)
+        /data/local/linux-env/ddns-go-ctl.sh start >>"$LOG" 2>&1
     fi
 
     # --- AutoPrimeNet loop (report results + fetch assignments via the v5 API) ---
