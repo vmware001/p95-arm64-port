@@ -27,7 +27,25 @@ MIN_TASKS=${MIN_TASKS:-16}
 FETCH_N=${FETCH_N:-2}
 EXP_LO=${EXP_LO:-200000}
 EXP_HI=${EXP_HI:-400000}
+FETCH_MIN_INTERVAL=${FETCH_MIN_INTERVAL:-86400}
 log() { echo "$(date '+%F %T') $*" >> "$LOG"; }
+
+# At most one PrimeNet "ga" attempt per FETCH_MIN_INTERVAL seconds (default one
+# day).  PrimeNet's anti-abuse rules blocked this box's WAN IP after a day of
+# frequent fetch/unreserve/API tests (2026-11-18: TCP to 209.147.127.187 was
+# dropped for hours while ICMP still worked), so do not hammer it: one attempt a
+# day is enough, a successful fetch queues ~100 curves (several days of work).
+STAMP=$APN/.last_fetch_attempt
+if [ "$FETCH_MIN_INTERVAL" -gt 0 ] && [ -f "$STAMP" ]; then
+    last=$(cat "$STAMP" 2>/dev/null)
+    case "$last" in ''|*[!0-9]*) last=0 ;; esac
+    now=$(date +%s)
+    if [ $((now - last)) -lt "$FETCH_MIN_INTERVAL" ]; then
+        log "skipping fetch: last attempt $(( (now - last) / 60 )) min ago (< ${FETCH_MIN_INTERVAL}s)"
+        exit 0
+    fi
+fi
+
 
 # 1) make sure the arm64 chroot and the /data/adb/mprime bind mount exist
 /data/local/linux-env/debian64.sh /bin/true 2>/dev/null
@@ -55,6 +73,7 @@ mkdir -p "$POOL"
 : > "$POOL/worktodo.txt"
 : > "$POOL/results.json.txt"
 log "farm has $tasks task lines (< $MIN_TASKS), fetching $FETCH_N assignment(s), exps $EXP_LO-$EXP_HI"
+date +%s > "$STAMP"
 /data/local/linux-env/debian64.sh /usr/bin/python3 "$APN/autoprimenet.py" \
     -w "$POOL" -u vm001 --prime95 --untrusted -T 5 \
     --min-exp "$EXP_LO" --max-exp "$EXP_HI" -n "$FETCH_N" -t 0 \

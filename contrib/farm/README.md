@@ -113,6 +113,13 @@ Queue policy: keep the spool small — `fetch_assignments.sh` only tops up below
 the 14-day assignment ETA. Exponents are fetched in the 200000-400000 range
 (12K/16K FFT) because of the stage-2 memory limit described below.
 
+PrimeNet requests are deliberately rare: `FETCH_MIN_INTERVAL` (default 86400 s)
+gates `fetch_assignments.sh` to at most one `ga` attempt per day, even though
+`apn_loop.sh` calls it every 30 minutes. On 2026-11-18 a day of frequent
+fetch/unreserve/API experiments was followed by PrimeNet's anti-abuse rules
+dropping TCP to `209.147.127.187` for hours (ICMP still answered), so the box
+now backs off to one attempt a day; a successful attempt queues ~100 curves.
+
 ### Work-type experiments (2026-11-17/18)
 
 Goal: find work that yields more credit per hour on the 4x Cortex-A53 box.
