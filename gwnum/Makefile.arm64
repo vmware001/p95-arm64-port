@@ -35,12 +35,20 @@ ifeq ($(ARCH),arm64)
   DEF_CC  = $(ZIG) cc -target aarch64-linux-musl
   DEF_CXX = $(ZIG) c++ -target aarch64-linux-musl
   DEF_AR  = $(ZIG) ar
+else ifeq ($(ARCH),macos)
+  # Native Apple Silicon build, run on the Mac itself (no cross compiler).
+  # Apple clang supports the GCC vector extensions the gwnum_c1 port uses and
+  # provides arm_neon.h, so the same C sources build for macOS/arm64.
+  # -mcpu=apple-m1 tunes for Firestorm/Icestorm.
+  DEF_CC  = clang
+  DEF_CXX = clang++
+  DEF_AR  = ar
 else ifeq ($(ARCH),x86)
   DEF_CC  = $(MINGW_BIN)/x86_64-w64-mingw32-gcc.exe
   DEF_CXX = $(MINGW_BIN)/x86_64-w64-mingw32-g++.exe
   DEF_AR  = $(MINGW_BIN)/ar.exe
 else
-  $(error ARCH must be arm64 or x86, got "$(ARCH)")
+  $(error ARCH must be arm64, macos or x86, got "$(ARCH)")
 endif
 
 ifeq ($(origin CC),default)
@@ -115,6 +123,19 @@ ifeq ($(ARCH),x86)
   CXXFLAGS += -march=x86-64-v2
 endif
 
+ifeq ($(ARCH),macos)
+  # Apple Silicon: arm64 slice, Firestorm/Icestorm scheduling, macOS 11+ (the
+  # first Apple Silicon release).  Override APPLE_CPU to tune another core
+  # family (e.g. APPLE_CPU=apple-m2, or empty for a generic armv8.5 build).
+  APPLE_CPU ?= apple-m1
+  MACOS_ARCH_FLAGS = -arch arm64 -mmacosx-version-min=11.0
+  ifneq ($(APPLE_CPU),)
+    MACOS_ARCH_FLAGS += -mcpu=$(APPLE_CPU)
+  endif
+  CFLAGS   += $(MACOS_ARCH_FLAGS)
+  CXXFLAGS += $(MACOS_ARCH_FLAGS)
+endif
+
 # ---- sources ---------------------------------------------------------------
 
 # Core library sources (top level).  fftsg.c is the ancient generic FFT and is
@@ -178,9 +199,10 @@ OBJS      = $(addprefix $(OBJDIR)/,$(notdir $(SRCS:.cpp=.o)))
 OBJS     := $(OBJS:.c=.o)
 GNUM_OBJS = $(filter-out $(OBJDIR)/polymult.o,$(OBJS))
 POLY_OBJS = $(OBJDIR)/polymult.o
-ifeq ($(ARCH),arm64)
+ifneq ($(ARCH),x86)
 # 128-bit-layout polymult ("SSE2" intrinsics mapped to NEON through arm64_sse2.h;
-# required so P-1/ECM stage 2 matches gwnum's ARM64 128-bit FFT layout).
+# required so P-1/ECM stage 2 matches gwnum's ARM64 128-bit FFT layout).  Needed
+# for both the Linux arm64 and the macOS Apple Silicon builds.
 POLY_OBJS += $(OBJDIR)/polymult_sse2.o
 endif
 

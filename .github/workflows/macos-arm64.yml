@@ -1,0 +1,73 @@
+name: build-macos-arm64
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - 'macosxarm64/**'
+      - 'gwnum/**'
+      - '.github/workflows/macos-arm64.yml'
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # Apple Silicon (M1) runner: builds and runs the binary natively.
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install gmp hwloc boost curl
+          echo "=== versions ==="
+          clang --version
+          uname -a
+          sysctl -n machdep.cpu.brand_string || true
+
+      - name: Build mprime (native arm64)
+        run: |
+          set -o pipefail
+          ./macosxarm64/build-macos-arm64.sh 2>&1 | tee build.log
+
+      - name: Verify Mach-O architecture
+        run: |
+          file macosxarm64/mprime
+          otool -hv macosxarm64/mprime | tail -3
+          otool -L macosxarm64/mprime | head -20
+
+      - name: Smoke test (short torture test)
+        run: |
+          cd macosxarm64
+          printf 'UsePrimenet=0\nStressTester=1\nNumCPUs=2\nNumWorkers=1\n' > prime.txt
+          ./mprime -d -t > smoke.log 2>&1 &
+          MPID=$!
+          sleep 25
+          kill $MPID 2>/dev/null || true
+          sleep 2
+          kill -9 $MPID 2>/dev/null || true
+          echo "=== smoke.log tail ==="
+          tail -40 smoke.log || true
+          # Require that the FFT self-test actually started and produced output.
+          grep -qE 'Torture|Self-test|FFT|Starting' smoke.log
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: mprime-macos-arm64
+          path: |
+            macosxarm64/mprime
+            build.log
+          if-no-files-found: error
+
+      - name: Upload to GitHub release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: macosxarm64/mprime
