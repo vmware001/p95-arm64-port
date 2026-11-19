@@ -47,8 +47,8 @@ INCS = -I.. -I../gwnum -I../linux \
        $(if $(CURL_PREFIX),-I$(CURL_PREFIX)/include) \
        $(if $(BOOST_PREFIX),-I$(BOOST_PREFIX)/include)
 
-CFLAGS   = $(ARCHFLAGS) $(INCS) -std=gnu99 -O3 -ffp-contract=on -DX86_64 -DCOMMAND_LINE_MPRIME -DPORT=10 -Wno-unused-result
-CPPFLAGS = $(ARCHFLAGS) $(INCS) -std=c++11 -O3 -ffp-contract=on -DX86_64 -DCOMMAND_LINE_MPRIME -DPORT=10 -Wno-unused-result
+CFLAGS   = $(ARCHFLAGS) $(INCS) -std=gnu99 -O3 -ffp-contract=on -MMD -MP -DX86_64 -DCOMMAND_LINE_MPRIME -DPORT=10 -Wno-unused-result
+CPPFLAGS = $(ARCHFLAGS) $(INCS) -std=c++11 -O3 -ffp-contract=on -MMD -MP -DX86_64 -DCOMMAND_LINE_MPRIME -DPORT=10 -Wno-unused-result
 
 LFLAGS = $(ARCHFLAGS) -Wl,-no_pie
 
@@ -74,10 +74,14 @@ EXE  = mprime
 
 all: $(EXE)
 
-# The two gwnum archives are built from the shared ARM64 C port.
-$(GWNUM_LIBDIR)/gwnum.a $(GWNUM_LIBDIR)/polymult.a:
+# The two gwnum archives are built from the shared ARM64 C port.  "force"
+# makes the sub-make run on every build (it is cheap when nothing changed);
+# without it the archives would never be rebuilt once they exist.
+$(GWNUM_LIBDIR)/gwnum.a $(GWNUM_LIBDIR)/polymult.a: force
 	$(MAKE) -C ../gwnum -f Makefile.arm64 ARCH=macos APPLE_CPU="$(APPLE_CPU)" \
 		OBJDIR="$(CURDIR)/obj-gwnum" LIBDIR="$(CURDIR)"
+
+force:
 
 $(EXE): security $(OBJS) $(FACTOROBJ) $(GWNUM_LIBDIR)/gwnum.a $(GWNUM_LIBDIR)/polymult.a
 	$(ENVP) $(CPP) $(LFLAGS) -o $(EXE) $(OBJS) $(FACTOROBJ) $(LIBS)
@@ -106,10 +110,15 @@ pm1prob.o: ../pm1prob.c
 	$(ENVP) $(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	-rm -f $(EXE) $(OBJS) $(FACTOROBJ)
+	-rm -f $(EXE) $(OBJS) $(FACTOROBJ) $(OBJS:.o=.d) $(FACTOROBJ:.o=.d)
 	-rm -rf obj-gwnum gwnum.a polymult.a
 
 distclean: clean
 	-rm -rf obj-gwnum
 
-.PHONY: all clean distclean security
+# Automatic header/source dependencies (-MMD -MP).  prime.c #includes
+# commona.c/commonb.c/commonc.c and friends, so tracking them is essential:
+# without it editing ../commonc.c only relinks while prime.o stays stale.
+-include $(OBJS:.o=.d) $(FACTOROBJ:.o=.d)
+
+.PHONY: all clean distclean security force

@@ -1,0 +1,32 @@
+hwloc 2.15.0 (and 2.11.x) infinite loop in the Darwin backend on Apple Silicon.
+
+hwloc__darwin_build_perflevel_cache_level() initializes `next` once, outside the
+per-group loop, and then walks the perflevel cpuset with hwloc_bitmap_next().
+When the cpuset size is not a multiple of the group width (e.g. Apple M6
+reports asymmetric L2 groups of 4+2+2+2+2 cores), the last group ends with
+next == -1 while k > 0.  A partial cache object is created, but on the next
+outer iteration hwloc_bitmap_next(cpuset, -1) starts again at the first CPU,
+so cache objects are created forever and hwloc_topology_load() never returns
+(mprime hangs at startup using 100% CPU).
+
+Fix: stop after creating the trailing partial group.
+
+Apply with: patch -p1 < hwloc-2.15.0-darwin-perflevel-cache-fix.patch
+(in the hwloc-2.15.0 source directory), then rebuild/install hwloc, then link
+mprime against the patched static library.  Verified on Apple M6 / macOS 27.2.
+
+--- a/hwloc/topology-darwin.c
++++ b/hwloc/topology-darwin.c
+@@ -441,6 +441,12 @@
+     obj->attr->cache.linesize = linesize;
+     obj->attr->cache.associativity = 0; /* unknown */
+     hwloc__insert_object_by_cpuset(topology, NULL, obj, "darwin:perflevel:cache");
++    /* If the cpuset is exhausted mid-group (its size is not a multiple of
++       width), stop after creating the trailing partial group.  Otherwise the
++       outer loop restarts from the first CPU of the cpuset and creates
++       duplicate cache objects forever (seen on Apple M6 / macOS 27). */
++    if (next < 0)
++      return;
+   }
+ }
+ 

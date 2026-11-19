@@ -25,9 +25,16 @@ fi
 RESULTS=$MP/farm1/results.json.txt
 [ -s "$RESULTS" ] || { log "no new results"; exit 0; }
 
-# 2) snapshot the results file into the AutoPrimeNet workdir and submit it
+# 2) snapshot the results file into the AutoPrimeNet workdir and submit it.
+#    AutoPrimeNet decides the "d=" flag of an ECM result from the worktodo lines
+#    still queued for the same assignment; here the queue is mprime's worktodo,
+#    not AutoPrimeNet's, so point it at the farm file (patched AutoPrimeNet:
+#    APN_ECM_REMAINING_WORKTODO).  Without this every ECM result is sent with
+#    d=1, PrimeNet closes the 50-curve assignment after the first curve and the
+#    other 49 curves come back as "error 43: invalid assignment key".
 : > "$APN/results.json.txt"
 cp -f "$RESULTS" "$APN/results.json.txt"
+APN_ECM_REMAINING_WORKTODO="$MP/farm1/worktodo.txt" \
 /data/local/linux-env/debian64.sh /usr/bin/python3 "$APN/autoprimenet.py" \
     -w "$APN" -u vm001 --prime95 -r results.json.txt --report-results >> "$LOG" 2>&1
 rc=$?

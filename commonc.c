@@ -637,6 +637,28 @@ void getCpuInfo (void)
 	for (core = 0; core < HW_NUM_CORES; core++) if (HW_CORES[core].ranking >= 1) HW_NUM_COMPUTE_CORES++;
 	ASSERTG (HW_NUM_COMPUTE_CORES > 0);
 
+/* PORTING: the worker/core allocation code assumes all threading nodes are the */
+/* same size -- it uses HW_NUM_COMPUTE_CORES / HW_NUM_COMPUTE_THREADING_NODES to */
+/* decide how many cores belong to each node (see get_cores_in_threading_node).  */
+/* Some CPUs report unequal cache-sharing groups, most notably Apple Silicon,    */
+/* where hwloc returns asymmetric L2 groups (e.g. 4+2+2+2+2 cores on an M6).    */
+/* The inexact division makes the benchmark assign more cores than exist and     */
+/* deadlock at its worker barrier, and makes the default CoresPerWorker leave    */
+/* cores unused.  Fall back to a single threading node in that case so every    */
+/* core is used and the even-division assumption always holds.                  */
+
+	if (HW_NUM_COMPUTE_THREADING_NODES > 1 &&
+	    HW_NUM_COMPUTE_CORES % HW_NUM_COMPUTE_THREADING_NODES != 0) {
+		HW_NUM_COMPUTE_THREADING_NODES = 1;
+		HW_NUM_THREADING_NODES = 1;
+	}
+	if (HW_NUM_THREADING_NODES > HW_NUM_COMPUTE_THREADING_NODES) {
+		int	efficiency_cores = HW_NUM_CORES - HW_NUM_COMPUTE_CORES;
+		int	efficiency_nodes = HW_NUM_THREADING_NODES - HW_NUM_COMPUTE_THREADING_NODES;
+		if (efficiency_nodes > 0 && efficiency_cores % efficiency_nodes != 0)
+			HW_NUM_THREADING_NODES = HW_NUM_COMPUTE_THREADING_NODES;
+	}
+
 /* Calculate hardware GUID (global unique identifier) using the CPUID info. */
 /* Well, it isn't unique but it is about as good as we can do and still have */
 /* portable code.  Do this calculation before user overrides values */

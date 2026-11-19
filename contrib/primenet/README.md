@@ -76,6 +76,23 @@ every remaining curve is rejected with
 worktodo line of the same assignment is queued and `d=1` for the last curve) so
 a batch of single-curve worktodo lines can all be credited.
 
+### macOS and farm deployments: the fourth patch
+
+`patches/autoprimenet-2.0.2-macos-and-farm.patch` is applied on top of the three
+patches above and contains two local (not upstream) fixes:
+
+* **macOS**: Apple's `/usr/lib/libcrypto.dylib` is a stub — `ctypes.CDLL()` on it
+  aborts the process with `Python is loading libcrypto in an unsafe way` /
+  SIGABRT. The patch rejects libraries under `/usr/lib` and `/System/`; the
+  optional AES helper is then simply disabled.
+* **farm**: in a farm the program (mprime) owns the worktodo file, so
+  AutoPrimeNet's own worktodo is empty and the keep-open probe would still send
+  `d=1`. Set `APN_ECM_REMAINING_WORKTODO` to mprime's worktodo file and the
+  remaining curves of the same `(k,b,n,c)` are counted from it. Verified
+  2026-11-19: one curve reported while 49 were queued → `d=0`, result accepted
+  (`CPU credit is 0.4858 GHz-days`), assignment stayed open; an empty queue
+  yields `d=1` (four test curves, `Accepted 4 results.`).
+
 ```sh
 git clone https://github.com/tdulcet/AutoPrimeNet.git
 cd AutoPrimeNet

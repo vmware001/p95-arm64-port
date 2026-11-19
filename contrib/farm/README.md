@@ -97,6 +97,17 @@ remaining curve comes back as `PrimeNet error 43: Invalid assignment key`
 patch `../primenet/patches/autoprimenet-2.0.2-ecm-keep-open.patch` fixes the
 `d` flag (factor results still close the assignment).
 
+The keep-open logic normally looks for remaining curves in AutoPrimeNet's own
+worktodo file, which is empty on the farm: `mprime` owns `farm1/worktodo.txt`
+and AutoPrimeNet only reports results. `submit_apn.sh` therefore exports
+`APN_ECM_REMAINING_WORKTODO="$MP/farm1/worktodo.txt"` so the remaining curves are
+counted from the file `mprime` is actually working from
+(`../primenet/patches/autoprimenet-2.0.2-macos-and-farm.patch`). Verified on
+2026-11-19 with a real result: 49 curves still queued → the report URL carried
+`d=0`, PrimeNet accepted the result (`CPU credit is 0.4858 GHz-days`) and kept
+the assignment open; reports with an empty queue (the four test curves before
+the fix) carried `d=1`.
+
 Consequence for the box (2026-11-17): the four old assignments had already been
 closed that way after their first reported curve (M264169, M279863, M7831391,
 M10032203), so their ~289 remaining single-curve lines could never be credited

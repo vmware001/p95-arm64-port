@@ -1804,6 +1804,17 @@ void guessCpuSpeed ()
 {
 	if (CPU_SPEED <= 0.0) arm64_linux_cpu_info ();
 }
+#elif defined(__APPLE__) && defined(__aarch64__)
+/* PORTING: Apple Silicon exposes neither hw.cpufrequency (there is no     */
+/* sysctl for the CPU clock) nor a user-accessible cycle counter, and       */
+/* cntvct_el0 counts the fixed 24 MHz timebase rather than core clocks, so  */
+/* the RDTSC-based measurement below would misreport the speed.  Report a   */
+/* nominal value so displayed speeds and ETAs are in the right ballpark.    */
+/* The user can still set an exact value with CpuSpeed= in prime.txt.      */
+void guessCpuSpeed ()
+{
+	CPU_SPEED = 4000.0;
+}
 #elif defined(NO_RDTSC)
 void guessCpuSpeed () {CPU_SPEED = 100.0;}
 #else

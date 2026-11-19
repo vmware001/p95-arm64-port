@@ -1,0 +1,98 @@
+AutoPrimeNet 2.0.2: macOS libcrypto stub + farm ECM "remaining worktodo" queue
+=============================================================================
+
+Local deployment patch for the farm (not submitted upstream).  Apply it on top of
+the three patches in this directory:
+
+  autoprimenet-2.0.2-prime95-report-only.patch
+  autoprimenet-2.0.2-untrusted-fetch.patch
+  autoprimenet-2.0.2-ecm-keep-open.patch
+
+It contains two independent fixes:
+
+1. macOS: Apple's /usr/lib/libcrypto.dylib is a stub.  dlopen()ing it aborts the
+   process with "Python is loading libcrypto in an unsafe way" / SIGABRT.  Only
+   accept a real OpenSSL library outside /usr/lib and /System; the optional AES
+   helper is then simply disabled.  Needed to run AutoPrimeNet with the system
+   python3 on macOS.
+
+2. Farm: the ECM d=0 logic added by the ecm-keep-open patch looks for remaining
+   curves in AutoPrimeNet's own worktodo file.  In a farm the program (mprime)
+   owns the worktodo file and AutoPrimeNet only reports results, so its worktodo
+   is empty and every result would still go out with d=1, closing the 50-curve
+   assignment after the first curve.  With APN_ECM_REMAINING_WORKTODO pointing
+   at mprime's worktodo, the remaining curves are counted from that file.
+   Verified on 2026-11-19: one curve submitted while 49 were still queued ->
+   request carried d=0, PrimeNet accepted the result and kept the assignment
+   open; the first four test curves submitted with an empty queue carried d=1.
+
+--- a/autoprimenet.py
++++ b/autoprimenet.py
+@@ -809,6 +809,13 @@
+ 		break
+ 	else:
+ 		libcrypto = find_library("crypto") or find_library("eay32")
++		# Apple's /usr/lib/libcrypto.dylib is a stub: dlopen() aborts the process
++		# with "Python is loading libcrypto in an unsafe way" and SIGABRT, so only
++		# accept a real OpenSSL library outside the system directories (e.g.
++		# Homebrew's or python.org's).  The AES helper is optional, so leaving
++		# libcrypto unset is safe.
++		if libcrypto and (libcrypto.startswith("/usr/lib") or libcrypto.startswith("/System/")):
++			libcrypto = None
+ else:
+ 	libcrypto = find_library("crypto") or find_library("eay32")
+ 
+@@ -8091,6 +8098,12 @@
+ 		# last curve (or a found factor) closes it.  The stock code always sent
+ 		# d=1, which makes PrimeNet close the assignment after the first curve
+ 		# and turns all remaining curves into "invalid assignment key" results.
++		#
++		# The queue normally lives in AutoPrimeNet's own worktodo file.  When the
++		# program keeps it somewhere else (e.g. a farm where mprime owns the
++		# worktodo file and AutoPrimeNet only reports results), set
++		# APN_ECM_REMAINING_WORKTODO to that file and the remaining curves are
++		# counted from it, so d=0 still keeps the assignment open.
+ 		if result_type == PRIMENET_AR.ECM_FACTOR:
+ 			params["d"] = 1
+ 		else:
+@@ -8097,15 +8110,29 @@
+-			params["d"] = (
+-				0
+-				if any(
+-					task.k == assignment.k
+-					and task.b == assignment.b
+-					and task.n == assignment.n
+-					and task.c == assignment.c
+-					for task in tasks
+-					if isinstance(task, Assignment)
+-				)
+-				else 1
++			keep_open = any(
++				task.k == assignment.k
++				and task.b == assignment.b
++				and task.n == assignment.n
++				and task.c == assignment.c
++				for task in tasks
++				if isinstance(task, Assignment)
+ 			)
++			remaining_file = os.environ.get("APN_ECM_REMAINING_WORKTODO")
++			if not keep_open and remaining_file:
++				try:
++					with open(remaining_file, encoding="utf-8", errors="replace") as remaining:
++						for line in remaining:
++							match = ECM_RE.match(line.strip())
++							if (
++								match
++								and int(match.group(3)) == assignment.k
++								and int(match.group(4)) == assignment.b
++								and int(match.group(5)) == assignment.n
++								and int(match.group(6)) == assignment.c
++							):
++								keep_open = True
++								break
++				except OSError:
++					pass
++			params["d"] = 0 if keep_open else 1
+ 		params.update((("A", assignment.k), ("b", assignment.b), ("c", assignment.c)))
+ 		params["CR"] = ar["curves"]
+ 		params["B1"] = ar["b1"]
