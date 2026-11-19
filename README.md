@@ -75,6 +75,37 @@ Everything runs on the device, supervised across reboots by an init service.
 See [`contrib/primenet/`](contrib/primenet/README.md) for the setup/patch and
 [`contrib/farm/apn/`](contrib/farm/apn/) for the on-device loop.
 
+## macOS arm64 (Apple Silicon)
+
+The upstream macOS build is Intel-only (Apple Silicon runs it under Rosetta).
+`macosxarm64/` builds a real arm64 binary from the same ARM64 gwnum port
+(NEON 128-bit emulating SSE2), using the official macOS platform code
+(`PORT=10`) and Apple clang. Prebuilt:
+**[`v31.7b2-arm64-macos-r1`](https://github.com/vmware001/p95-arm64-port/releases/tag/v31.7b2-arm64-macos-r1)**
+— `mprime-macos-arm64`, 9,048,952 bytes, sha256 `00e901cd…fd60d093`,
+deployment target macOS 11.0, ad-hoc linker-signed, static gmp/hwloc/boost.
+
+Validated on a Mac mini (Apple M6, 12 cores, macOS 27.2): full `mprime -b`
+rc=0 (3072K FFT ≈636–641 iter/s for 1/2/4/12 workers) and a 12-thread torture
+test with `0 errors, 0 warnings`. Apple Silicon fixes in this tree:
+`commonc.c` falls back to one threading node when the compute cores do not
+divide evenly across the asymmetric L2 groups (otherwise the 12-worker
+benchmark deadlocked), `gwnum/cpuid.c` reports a nominal 4000 MHz instead of
+the 100 MHz fallback, and hwloc 2.15.0 needs
+`macosxarm64/patches/hwloc-2.15.0-darwin-perflevel-cache-fix.patch`
+(without it hwloc loops forever on the M6 cache topology). Build:
+
+```sh
+cd /path/to/work    # all deps are built inside the workspace, nothing installed system-wide
+# 1) gmp 6.3.0 and hwloc 2.15.0 (with the patch) built --disable-shared into deps/install
+# 2) boost headers: deps/install/include/boost -> boost_1_85_0/boost
+make -j8 APPLE_CPU=apple-m6 \
+    GMP_PREFIX=deps/install HWLOC_PREFIX=deps/install BOOST_PREFIX=deps/install
+```
+
+Known limitation: per-worker affinity is a no-op on macOS/arm64
+(`Error setting affinity … Invalid argument` is printed but harmless).
+
 ## Prebuilt binary
 
 Grab the static AArch64 build from
